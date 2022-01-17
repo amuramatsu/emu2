@@ -58,6 +58,7 @@ static uint32_t get_static_memory(uint16_t bytes, uint16_t align)
 #define max_handles (0x10000)
 static FILE *handles[max_handles];
 static int devinfo[max_handles];
+static unsigned handle_owners[max_handles];
 
 static int guess_devinfo(FILE *f)
 {
@@ -82,6 +83,8 @@ static void init_handles(void)
     // stdin,stdout,stderr: special, eof on input, is device
     for(int i = 0; i < 3; i++)
         devinfo[i] = guess_devinfo(handles[i]);
+    for(int i = 0; i < 5; i++)
+        handle_owners[i] = 0;
 }
 
 static int get_new_handle(void)
@@ -104,6 +107,7 @@ static int dos_close_file(int h)
     }
     handles[h] = 0;
     devinfo[h] = 0;
+    handle_owners[h] = 0;
     cpuClrFlag(cpuFlag_CF);
     for(int i = 0; i < max_handles; i++)
         if(handles[i] == f)
@@ -112,6 +116,13 @@ static int dos_close_file(int h)
         return 0; // Never close standard streams
     fclose(f);
     return 0;
+}
+
+static void dos_close_allfile_owned(unsigned psp_seg)
+{
+    for(int i = 0; i < max_handles; i++)
+        if(handles[i] && handle_owners[i] == psp_seg)
+            dos_close_file(i);
 }
 
 static void create_dir(void)
@@ -248,6 +259,7 @@ static void dos_open_file(int create)
     }
     else
         devinfo[h] = 0x0000 + dos_get_default_drive();
+    handle_owners[h] = get_current_PSP();
     debug(debug_dos, "OK.\n");
     cpuClrFlag(cpuFlag_CF);
     cpuSetAX(h);
@@ -314,6 +326,7 @@ static void dos_open_file_fcb(int create)
         free(fname);
         return;
     }
+    handle_owners[h] = get_current_PSP();
     // Get file size
     fseek(handles[h], 0, SEEK_END);
     long sz = ftell(handles[h]);
@@ -1669,6 +1682,7 @@ void int21()
         debug(debug_dos, "\t%04x -> %04x\n", cpuGetBX(), h);
         handles[h] = handles[cpuGetBX()];
         devinfo[h] = devinfo[cpuGetBX()];
+        handle_owners[h] = get_current_PSP();
         cpuSetAX(h);
         cpuClrFlag(cpuFlag_CF);
         break;
@@ -1801,6 +1815,96 @@ void int21()
             else
                 cpuClrFlag(cpuFlag_CF);
         }
+        else if((ax & 0xFF) == 1)
+        {
+            debug(debug_dos, "load: '%s'\n", fname);
+            int cur_psp = get_current_PSP();
+
+            // Get executable file name:
+            char *prgname = getstr(cpuGetAddrDS(cpuGetDX()), 64);
+            // Read command line parameters:
+            int pb = cpuGetAddrES(cpuGetBX());
+            int cmd_addr = cpuGetAddress(get16(pb + 4), get16(pb + 2));
+            int clen = memory[cmd_addr];
+            char *cmdline = getstr(cmd_addr + 1, clen);
+            debug(debug_dos, "\tload command line: '%s %.*s'\n", prgname, clen, cmdline);
+
+            int env_seg = get16(cpuGetAddress(cur_psp, 44));
+            if(get16(pb) != 0)
+                env_seg = get16(pb);
+            int eaddr = cpuGetAddress(env_seg, 0);
+            int elen = 0;
+            char *env = "\0\0";
+            
+            // Sanitize env
+            while(memory[eaddr] != 0 && eaddr < 0xFFFFF)
+            {
+                while(memory[eaddr] != 0 && eaddr < 0xFFFFF)
+                    eaddr++;
+                eaddr++;
+            }
+            if(eaddr < 0xFFFFF)
+            {
+                elen = eaddr - cpuGetAddress(env_seg, 0);
+                env = (char *)(memory + cpuGetAddress(env_seg, 0));
+            }
+            
+            int psp_mcb = create_PSP(cmdline, env, elen, prgname);
+            if(psp_mcb == 0)
+            {
+                cpuSetAX(8); // insufficient memory
+                cpuSetFlag(cpuFlag_CF);
+                break;
+            }
+
+            // save registers
+            unsigned saveCX = cpuGetCX();
+            unsigned saveSI = cpuGetSI();
+            unsigned saveDI = cpuGetDI();
+            unsigned saveBP = cpuGetBP();
+            unsigned saveSP = cpuGetSP();
+            unsigned saveIP = cpuGetIP();
+            unsigned saveCS = cpuGetCS();
+            unsigned saveDS = cpuGetDS();
+            unsigned saveES = cpuGetES();
+            unsigned saveSS = cpuGetSS();
+            
+            // Load program
+            FILE *f = fopen(fname, "rb");
+            if(!f)
+                print_error("can't open '%s': %s\n", fname, strerror(errno));
+            if(!dos_load_exe(f, psp_mcb))
+                print_error("error loading EXE/COM file.\n");
+            fclose(f);
+
+            // Push AX
+            put16(cpuGetAddress(cpuGetSS(), cpuGetSP()-2), cpuGetAX());
+            
+            // Save SS:SP & CS:IP
+            put16(pb+14, cpuGetSP()-2);
+            put16(pb+16, cpuGetSS());
+            put16(pb+18, cpuGetIP());
+            put16(pb+20, cpuGetCS());
+
+            // Restore regs
+            cpuSetCX(saveCX);
+            cpuSetSI(saveSI);
+            cpuSetDI(saveDI);
+            cpuSetBP(saveBP);
+            cpuSetSP(saveSP);
+            cpuSetIP(saveIP);
+            cpuSetCS(saveCS);
+            cpuSetDS(saveDS);
+            cpuSetES(saveES);
+            cpuSetSS(saveSS);
+            
+            // Set parent PSP to the current one
+            put16(cpuGetAddress(psp_mcb+1, 22), cur_psp);
+            set_current_PSP(psp_mcb+1);
+
+            cpuClrFlag(cpuFlag_CF);
+            cpuSetAX(0);
+        }
         else
         {
             debug(debug_dos, "\texec '%s': type %02xh not supported.\n", fname,
@@ -1820,8 +1924,6 @@ void int21()
         else
         {
             // Exit to parent
-            // TODO: we must close all child file descriptors and dealocate
-            //       child memory.
             return_code = cpuGetAX() & 0xFF;
             // Patch INT 22h, 23h and 24h addresses to the ones saved in new PSP
             put16(0x88, get16(cpuGetAddress(get_current_PSP(), 10)));
@@ -1830,6 +1932,10 @@ void int21()
             put16(0x8E, get16(cpuGetAddress(get_current_PSP(), 16)));
             put16(0x90, get16(cpuGetAddress(get_current_PSP(), 18)));
             put16(0x92, get16(cpuGetAddress(get_current_PSP(), 20)));
+            // Deallocate child memory
+            mem_free_owned(get_current_PSP());
+	    // Close all files
+	    dos_close_allfile_owned(get_current_PSP());
             // Set PSP to parent
             set_current_PSP(get16(cpuGetAddress(get_current_PSP(), 22)));
             // Get last stack

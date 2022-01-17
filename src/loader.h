@@ -15,6 +15,7 @@ void mem_free_segment(int seg);
 int mem_alloc_segment(int size, int *max);
 uint8_t mem_get_alloc_strategy(void);
 void mem_set_alloc_strategy(uint8_t s);
+void mem_free_owned(unsigned psp_seg);
 
 // Init internal memory handling
 void mcb_init(uint16_t mem_start, uint16_t mem_end);
