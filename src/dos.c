@@ -1056,9 +1056,11 @@ void int21()
     case 1: // CHARACTER INPUT WITH ECHO
         char_input(1);
         dos_putchar(cpuGetAX() & 0xFF);
+        check_screen();
         break;
     case 2: // PUTCH
         dos_putchar(cpuGetDX() & 0xFF);
+        check_screen();
         cpuSetAX(0x0200 | (cpuGetDX() & 0xFF)); // from intlist.
         break;
     case 0x6: // CONSOLE OUTPUT
@@ -1078,6 +1080,7 @@ void int21()
         break;
     case 0x9: // WRITE STRING
         int21_9();
+        check_screen();
         break;
     case 0xA: // BUFFERED INPUT
     {
@@ -1515,6 +1518,7 @@ void int21()
         {
             for(unsigned i = 0; i < len; i++)
                 video_putch(buf[i]);
+            check_screen();
             cpuSetAX(len);
         }
         else
