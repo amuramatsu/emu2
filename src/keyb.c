@@ -493,10 +493,12 @@ void int16()
     switch(ax >> 8)
     {
     case 0: // GET KEY
+    case 0x10: // Enhancecd GET KEY
         ax = getch(0);
         cpuSetAX(ax);
         break;
     case 1: // GET KEY AVAILABLE
+    case 0x11: // Enhanced GET KEY AVAILABLE
         ax = kbhit();
         cpuSetAX(ax);
         if(ax == 0)

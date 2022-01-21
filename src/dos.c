@@ -1389,7 +1389,7 @@ void int21()
         break;
     case 0x30: // DOS version: 3.30
         cpuSetAX(0x1E03);
-        cpuSetBX(0x0000);
+        cpuSetBX(0x0001);
         break;
     case 0x33: // BREAK SETTINGS
         if(ax == 0x3300)
