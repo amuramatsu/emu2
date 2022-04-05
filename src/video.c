@@ -14,8 +14,10 @@
 #include <unistd.h>
 
 // Color cell: une byte for the value and one for the color
-union term_cell {
-    struct {
+union term_cell
+{
+    struct
+    {
         uint8_t chr;
         uint8_t color;
     };
@@ -104,6 +106,21 @@ static void update_posxy(void)
     memory[0x462] = vid_page;
 }
 
+static void reload_posxy(int page)
+{
+    vid_posx[page] = memory[0x450 + page * 2];
+    vid_posy[page] = memory[0x451 + page * 2];
+}
+
+static void reload_posxy_all()
+{
+    for(int i = 0; i < 8; i++)
+    {
+        vid_posx[i] = memory[0x450 + i * 2];
+        vid_posy[i] = memory[0x451 + i * 2];
+    }
+}
+
 // Clears the terminal data - not the actual terminal screen
 static void clear_terminal(void)
 {
@@ -153,8 +170,8 @@ static unsigned get_last_used_row(void)
     unsigned max = 0;
     for(unsigned y = 0; y < vid_sy; y++)
         for(unsigned x = 0; x < vid_sx; x++)
-            if(term_screen[y][x].value != get_cell(0x00, 0x7).value  &&
-               term_screen[y][x].value != get_cell(0x20, 0x7).value )
+            if(term_screen[y][x].value != get_cell(0x00, 0x7).value &&
+               term_screen[y][x].value != get_cell(0x20, 0x7).value)
                 max = y + 1;
     return max;
 }
@@ -171,6 +188,21 @@ static void exit_video(void)
     debug(debug_video, "exit video - row %d\n", max);
 }
 
+void video_init_mem(void)
+{
+    // Fill the functionality table
+    memory[0xC0100] = 0x08; // Only mode 3 supported
+    memory[0xC0101] = 0x00;
+    memory[0xC0102] = 0x00;
+    memory[0xC0107] = 0x07; // Support 300, 350 and 400 scanlines
+    memory[0xC0108] = 0x00; // Active character blocks?
+    memory[0xC0109] = 0x00; // MAximum character blocks?
+    memory[0xC0108] = 0xFF; // Support functions
+
+    // Set video mode and clear screen
+    set_text_mode(1);
+}
+
 static void init_video(void)
 {
     debug(debug_video, "starting video emulation.\n");
@@ -185,17 +217,6 @@ static void init_video(void)
     atexit(exit_video);
     video_initialized = 1;
 
-    // Fill the functionality table
-    memory[0xC0100] = 0x08; // Only mode 3 supported
-    memory[0xC0101] = 0x00;
-    memory[0xC0102] = 0x00;
-    memory[0xC0107] = 0x07; // Support 300, 350 and 400 scanlines
-    memory[0xC0108] = 0x00; // Active character blocks?
-    memory[0xC0109] = 0x00; // MAximum character blocks?
-    memory[0xC0108] = 0xFF; // Support functions
-
-    // Set video mode
-    set_text_mode(1);
     clear_terminal();
     term_needs_update = 0;
     term_cursor = 1;
@@ -480,6 +501,7 @@ static void video_putchar(uint8_t ch, uint16_t at, int page)
 
 void video_putch(char ch)
 {
+    reload_posxy(vid_page);
     debug(debug_video, "putchar %02x at (%d,%d)\n", ch & 0xFF, vid_posx[vid_page],
           vid_posy[vid_page]);
     video_putchar(ch, 0xFF00, vid_page);
@@ -489,7 +511,8 @@ void video_putch(char ch)
 void int10()
 {
     debug(debug_int, "V-10%04X: BX=%04X\n", cpuGetAX(), cpuGetBX());
-    debug(debug_video, "V-10%04X: BX=%04X\n", cpuGetAX(), cpuGetBX());
+    debug(debug_video, "V-10%04X: BX=%04X CX=%04X DX=%04X\n", cpuGetAX(), cpuGetBX(),
+          cpuGetCX(), cpuGetDX());
 
     // Wake-up keyboard on video calls
     keyb_wakeup();
@@ -529,6 +552,7 @@ void int10()
     case 0x03: // GET CURSOR POS
     {
         int page = (cpuGetBX() >> 8) & 7;
+        reload_posxy(page);
         cpuSetDX(vid_posx[page] + (vid_posy[page] << 8));
         cpuSetCX(0x0010);
         break;
@@ -538,6 +562,7 @@ void int10()
             debug(debug_video, "WARN: Select display page > 7!\n");
         else
         {
+            reload_posxy_all();
             vid_page = ax & 7;
             update_posxy();
         }
@@ -559,6 +584,7 @@ void int10()
     case 0x08: // READ CHAR AT CURSOR
     {
         int page = (cpuGetBX() >> 8) & 7;
+        reload_posxy(page);
         cpuSetAX(get_xy(vid_posx[page], vid_posy[page], page));
         break;
     }
@@ -567,6 +593,7 @@ void int10()
     {
         int page = (cpuGetBX() >> 8) & 7;
         int full = (ax & 0x0100) ? 1 : 0;
+        reload_posxy(page);
         uint16_t px = vid_posx[page];
         uint16_t py = vid_posy[page];
         uint16_t ch = ax & 0xFF;
@@ -589,8 +616,12 @@ void int10()
         break;
     }
     case 0x0E: // TELETYPE OUTPUT
-        video_putchar(ax, 0xFF00, (cpuGetBX() >> 8) & 7);
+    {
+        int page = (cpuGetBX() >> 8) & 7;
+        reload_posxy(page);
+        video_putchar(ax, 0xFF00, page);
         break;
+    }
     case 0x0F: // GET CURRENT VIDEO MODE
         cpuSetAX((vid_sx << 8) | 0x0003 | vid_no_blank);
         cpuSetBX((vid_page << 8) | (0xFF & cpuGetBX()));
