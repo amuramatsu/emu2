@@ -1938,6 +1938,7 @@ void int21()
         free(fname);
         break;
     }
+    case 0x31: // Terminate and Stay Resident
     case 0x4C: // EXIT
         // Detect if our PSP is last one
         debug(debug_dos, "\texit PSP:'%04x', PARENT:%04x.\n", get_current_PSP(),
@@ -1955,10 +1956,13 @@ void int21()
             put16(0x8E, get16(cpuGetAddress(get_current_PSP(), 16)));
             put16(0x90, get16(cpuGetAddress(get_current_PSP(), 18)));
             put16(0x92, get16(cpuGetAddress(get_current_PSP(), 20)));
-            // Deallocate child memory
-            mem_free_owned(get_current_PSP());
-	    // Close all files
-	    dos_close_allfile_owned(get_current_PSP());
+            if ((ax & 0xff00) == 0x4c00)
+            {
+                // Deallocate child memory
+                mem_free_owned(get_current_PSP());
+                // Close all files
+                dos_close_allfile_owned(get_current_PSP());
+            }
             // Set PSP to parent
             set_current_PSP(get16(cpuGetAddress(get_current_PSP(), 22)));
             // Get last stack
