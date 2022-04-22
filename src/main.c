@@ -54,6 +54,7 @@ void write_port(unsigned port, uint8_t value)
 void emulator_update(void)
 {
     debug(debug_int, "emu update cycle\n");
+    cpuTriggerIRQ(0);
     update_timer();
     check_screen();
     update_keyb();
@@ -111,10 +112,16 @@ void bios_routine(unsigned inum)
     }
     else if(inum == 0x28)
         int28();
+    else if(inum == 0x29)
+        int29();
     else if(inum == 0x2A)
         int2a();
     else if(inum == 0x2f)
         int2f();
+    else if(inum == 0x8)
+        ; // Timer interrupt - nothing to do
+    else if(inum == 0x9)
+        ; // Keyboard interrupt - nothing to do
 #ifdef EMS_SUPPORT
     else if(inum == 0x67)
         int67();

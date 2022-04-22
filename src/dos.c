@@ -78,8 +78,8 @@ static void init_handles(void)
     handles[0] = stdin;
     handles[1] = stdout;
     handles[2] = stderr;
-    handles[3] = 0; // AUX
-    handles[4] = 0; // PRN
+    handles[3] = stderr; // AUX
+    handles[4] = stderr; // PRN
     // stdin,stdout,stderr: special, eof on input, is device
     for(int i = 0; i < 3; i++)
         devinfo[i] = guess_devinfo(handles[i]);
@@ -90,7 +90,7 @@ static void init_handles(void)
 static int get_new_handle(void)
 {
     int i;
-    for(i = 5; i < max_handles; i++)
+    for(i = 0; i < max_handles; i++)
         if(!handles[i])
             return i;
     return 0;
@@ -632,15 +632,9 @@ static void dos_find_first(void)
         dos_free_file_list(p->find_first_list);
 
     // Check if we want the volume label
-    if(cpuGetCX() & 8)
-    {
-        p->find_first_list = calloc(2, sizeof(struct dos_file_list));
-        p->find_first_list[0].unixname = strdup("//");
-        memcpy(p->find_first_list[0].dosname, "DISK LABEL", 11);
-        p->find_first_list[1].unixname = 0;
-    }
-    else
-        p->find_first_list = dos_find_first_file(cpuGetAddrDS(cpuGetDX()));
+    int do_label = (cpuGetCX() & 8) != 0;
+    int do_dirs = (cpuGetCX() & 16) != 0;
+    p->find_first_list = dos_find_first_file(cpuGetAddrDS(cpuGetDX()), do_label, do_dirs);
 
     p->find_first_ptr = p->find_first_list;
     return dos_find_next(1);
@@ -712,15 +706,8 @@ static void dos_find_first_fcb(void)
         dos_free_file_list(p->find_first_list);
 
     int efcb = get_ex_fcb();
-    if(memory[efcb] == 0xFF && memory[efcb + 6] == 0x08)
-    {
-        p->find_first_list = calloc(2, sizeof(struct dos_file_list));
-        p->find_first_list[0].unixname = strdup("//");
-        memcpy(p->find_first_list[0].dosname, "DISK LABEL", 11);
-        p->find_first_list[1].unixname = 0;
-    }
-    else
-        p->find_first_list = dos_find_first_file_fcb(get_fcb());
+    int do_label = (memory[efcb] == 0xFF && memory[efcb + 6] == 0x08);
+    p->find_first_list = dos_find_first_file_fcb(get_fcb(), do_label);
     p->find_first_ptr = p->find_first_list;
     return dos_find_next_fcb();
 }
@@ -877,24 +864,32 @@ void int20()
     exit(0);
 }
 
+// Returns a character read from keyboard - note that control keys return two
+// characters, so we need to store the half-processed char here.
+static uint16_t inp_last_key;
 static void char_input(int brk)
 {
-    static uint16_t last_key;
     fflush(handles[1] ? handles[1] : stdout);
 
-    if(last_key == 0)
+    if(inp_last_key == 0)
     {
         if(devinfo[0] != 0x80D3 && handles[0])
-            last_key = getc(handles[0]);
+            inp_last_key = getc(handles[0]);
         else
-            last_key = getch(brk);
+            inp_last_key = getch(brk);
     }
-    debug(debug_dos, "\tgetch = %02x '%c'\n", last_key, (char)last_key);
-    cpuSetAL(last_key);
-    if((last_key & 0xFF) == 0)
-        last_key = last_key >> 8;
+    debug(debug_dos, "\tgetch = %02x '%c'\n", inp_last_key, (char)inp_last_key);
+    cpuSetAL(inp_last_key);
+    if((inp_last_key & 0xFF) == 0)
+        inp_last_key = inp_last_key >> 8;
     else
-        last_key = 0;
+        inp_last_key = 0;
+}
+
+// Returns true if a character to read is pending
+static int char_pending()
+{
+    return (inp_last_key != 0) || kbhit();
 }
 
 static int line_input(FILE *f, uint8_t *buf, int max)
@@ -1084,7 +1079,18 @@ void int21()
         break;
     case 0x6: // CONSOLE OUTPUT
         if((cpuGetDX() & 0xFF) == 0xFF)
-            char_input(1);
+        {
+            if(char_pending())
+            {
+                char_input(0);
+                cpuClrFlag(cpuFlag_ZF);
+            }
+            else
+            {
+                cpuSetAL(0);
+                cpuSetFlag(cpuFlag_ZF);
+            }
+        }
         else
         {
             dos_putchar(cpuGetDX() & 0xFF);
@@ -1125,7 +1131,7 @@ void int21()
     }
     case 0xB: // STDIN STATUS
         if(devinfo[0] == 0x80D3)
-            cpuSetAX(kbhit() ? 0x0BFF : 0x0B00);
+            cpuSetAX(char_pending() ? 0x0BFF : 0x0B00);
         else
             cpuSetAX(0x0B00);
         break;
@@ -1421,8 +1427,10 @@ void int21()
         cpuSetES(get16(4 * (ax & 0xFF) + 2));
         break;
     case 0x36: // get free space
+        // We only return 512MB free, as some old DOS programs crash if
+        // the free space returned is more than 0x7FFF clusters.
         cpuSetAX(32);     // 16k clusters
-        cpuSetBX(0xFFFF); // all free, 1GB
+        cpuSetBX(0x7FFF); // half of disk free, 512MB
         cpuSetCX(512);    // 512 bytes/sector
         cpuSetDX(0xFFFF); // total 1GB
         break;
@@ -1650,7 +1658,7 @@ void int21()
             break;
         case 0x06: // GET INPUT STATUS
             if(devinfo[h] == 0x80D3)
-                cpuSetAX(kbhit() ? 0x44FF : 0x4400);
+                cpuSetAX(char_pending() ? 0x44FF : 0x4400);
             else
                 cpuSetAX(feof(handles[h]) ? 0x4400 : 0x44FF);
             break;
@@ -1817,10 +1825,13 @@ void int21()
             char *cmdline = getstr(cmd_addr + 1, clen);
             debug(debug_dos, "\texec command line: '%s %.*s'\n", prgname, clen, cmdline);
             char *env = "\0\0";
-            if(get16(pb) != 0)
+            uint16_t env_seg = get16(pb);
+            if(!env_seg)
+                env_seg = get16(cpuGetAddress(get_current_PSP(), 0x2C));
+            if(env_seg != 0)
             {
                 // Sanitize env
-                int eaddr = cpuGetAddress(get16(pb), 0);
+                int eaddr = cpuGetAddress(env_seg, 0);
                 while(memory[eaddr] != 0 && eaddr < 0xFFFFF)
                 {
                     while(memory[eaddr] != 0 && eaddr < 0xFFFFF)
@@ -1828,7 +1839,7 @@ void int21()
                     eaddr++;
                 }
                 if(eaddr < 0xFFFFF)
-                    env = (char *)(memory + cpuGetAddress(get16(pb), 0));
+                    env = (char *)(memory + cpuGetAddress(env_seg, 0));
             }
             if(run_emulator(fname, prgname, cmdline, env))
             {
@@ -2415,4 +2426,22 @@ void init_dos(int argc, char **argv)
 void int28(void)
 {
     usleep(1); // TODO: process messages?
+}
+
+void int29(void)
+{
+    int ax = cpuGetAX();
+    // Fast video output
+    debug(debug_int, "D-29: AX=%04X\n", ax);
+    debug(debug_dos, "D-29:   fast console out  AX=%04X\n", ax);
+
+    int ch = ax & 0xFF;
+    // If stdout is redirected or video is active, writes to video screen:
+    if(devinfo[1] != 0x80D3 || video_active())
+        video_putch(ch);
+    // Else, write to console
+    else if(!handles[1])
+        putchar(ch);
+    else
+        fputc(ch, handles[1]);
 }

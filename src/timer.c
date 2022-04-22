@@ -6,6 +6,7 @@
 #include <math.h>
 #include <sys/time.h>
 #include <time.h>
+#include <inttypes.h>
 
 // Emulate BIOS time
 static uint32_t bios_timer = 0;
@@ -65,13 +66,16 @@ static long get_timer_clock(void)
 // Get actual value in timer
 static uint16_t get_actual_timer(struct i8253_timer *t)
 {
-    int64_t elapsed = get_timer_clock() - t->load_time;
-    debug(debug_int, "timer elapsed: %lld\n", elapsed);
+    uint64_t elapsed = get_timer_clock() - t->load_time;
+    debug(debug_int, "timer elapsed: %" PRIu64 "\n", elapsed);
     switch(t->op_mode & 7)
     {
     case 2: // RATE GENERATOR
     case 3: // SQUARE WAVE GENERATOR
-        return t->load_value - (elapsed % (t->load_value));
+        if(t->load_value)
+            return t->load_value - (elapsed % (t->load_value));
+        else
+            return -(elapsed & 0xFFFF);
     default:
         return t->load_value - elapsed;
     }
