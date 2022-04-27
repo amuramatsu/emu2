@@ -1863,9 +1863,9 @@ void int21()
             char *cmdline = getstr(cmd_addr + 1, clen);
             debug(debug_dos, "\tload command line: '%s %.*s'\n", prgname, clen, cmdline);
 
-            int env_seg = get16(cpuGetAddress(cur_psp, 44));
-            if(get16(pb) != 0)
-                env_seg = get16(pb);
+            uint16_t env_seg = get16(pb);
+            if(!env_seg)
+                env_seg = get16(cpuGetAddress(get_current_PSP(), 0x2C));
             int eaddr = cpuGetAddress(env_seg, 0);
             int elen = 0;
             char *env = "\0\0";
