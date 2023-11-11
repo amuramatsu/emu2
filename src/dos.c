@@ -1135,7 +1135,28 @@ void int21()
         unsigned len = memory[addr], i = 2;
         while(i < len && addr + i < 0x100000)
         {
-            int c = getc(f);
+            int c;
+            if(devinfo[0] == 0x80D3)
+            {
+                char_input(1);
+                c = cpuGetAX() & 0xFF;
+                if(c == 0x08 || c == 0x7f) // backspace or delete
+                {
+                    if(i > 2)
+                    {
+                        dos_putchar(0x08, 1);
+                        dos_putchar(' ', 1);
+                        dos_putchar(0x08, 1);
+                        i--;
+                    }
+                    continue;
+                }
+                dos_putchar(c, 1);
+            }
+            else
+            {
+                c = getc(f);
+            }
             if(c == '\n' || c == EOF)
                 c = '\r';
             memory[addr + i] = (char)c;
