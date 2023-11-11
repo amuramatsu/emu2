@@ -30,16 +30,16 @@ static int valid_fcb_char(int i)
 }
 
 // The FCB parsing states.
-#define FCB_PARSE_INIT 0
+#define FCB_PARSE_INIT      0
 #define FCB_PARSE_INIT_PLUS 10
-#define FCB_PARSE_FCB1 1
-#define FCB_PARSE_FCB1_EXT 2
-#define FCB_PARSE_SEP 3
-#define FCB_PARSE_SEP_PLUS 13
+#define FCB_PARSE_FCB1      1
+#define FCB_PARSE_FCB1_EXT  2
+#define FCB_PARSE_SEP       3
+#define FCB_PARSE_SEP_PLUS  13
 #define FCB_PARSE_SEP_PURGE 23
-#define FCB_PARSE_FCB2 4
-#define FCB_PARSE_FCB2_EXT 5
-#define FCB_PARSE_EXIT 6
+#define FCB_PARSE_FCB2      4
+#define FCB_PARSE_FCB2_EXT  5
+#define FCB_PARSE_EXIT      6
 
 static void cmdline_to_fcb(const char *cmd_line, uint8_t *fcb1, uint8_t *fcb2)
 {
@@ -836,18 +836,17 @@ int dos_load_exe(FILE *f, uint16_t psp_mcb)
     // An EXE file, read rest of blocks
     int head_size = g16(buf + 8) * 16;
     int data_blocks = g16(buf + 4);
+    int extra_bytes = g16(buf + 2);
     if(data_blocks & 0xF800)
     {
         debug(debug_dos, "\tinvalid number of blocks ($%04x), fixing.\n", data_blocks);
         data_blocks &= 0x07FF;
     }
-    int data_size = data_blocks * 512 + g16(buf + 2) - head_size;
-    if(g16(buf + 2))
-        data_size -= 512;
-
+    int data_size = data_blocks * 512 - head_size;
     int load_seg = psp_mcb + 17;
 
     // Get max and min memory needed
+    // EXE size is size of data + PSP:
     int exe_sz = (data_size + 256 + 15) >> 4;
     int min_sz = g16(buf + 10) + exe_sz;
     int max_sz = g16(buf + 12) ? g16(buf + 12) + exe_sz : 0xFFFF;
@@ -871,8 +870,16 @@ int dos_load_exe(FILE *f, uint16_t psp_mcb)
     // Seek to start of data and read
     fseek(f, head_size, SEEK_SET);
     n = fread(memory + load_seg * 16, 1, data_size, f);
+    // Adjust data_size depending on extra_bytes
+    if(extra_bytes)
+        data_size = data_size - 512 + extra_bytes;
     debug(debug_dos, "\texe read %d of %d data bytes\n", n, data_size);
-    if(n < data_size)
+    if(!n)
+    {
+        debug(debug_dos, "\texe too short!\n");
+        return 0;
+    }
+    else if(n < data_size)
         debug(debug_dos, "\tWARNING: short program!\n");
 
     // EXE start at load address

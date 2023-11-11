@@ -41,6 +41,9 @@ static const char *append_path()
 // Disk Transfer Area, buffer for find-first-file output.
 static int dosDTA;
 
+// Emulated DOS version: default to DOS 3.30
+static int dosver = 0x1E03;
+
 // Allocates memory for static DOS tables, from "rom" memory
 static uint32_t get_static_memory(uint16_t bytes, uint16_t align)
 {
@@ -765,14 +768,24 @@ static void dos_get_drive_info(uint8_t drive)
 }
 
 // Writes a character to standard output.
-static void dos_putchar(uint8_t ch)
+static void dos_putchar(uint8_t ch, int fd)
 {
-    if(devinfo[1] == 0x80D3 && video_active())
-        video_putch(ch);
-    else if(!handles[1])
+    if(devinfo[fd] == 0x80D3 && video_active())
+    {
+        // Handle TAB character here:
+        if(ch == 0x09)
+        {
+            int n = 8 - (7 & video_get_col());
+            while(n--)
+                video_putch(' ');
+        }
+        else
+            video_putch(ch);
+    }
+    else if(!handles[fd])
         putchar(ch);
     else
-        fputc(ch, handles[1]);
+        fputc(ch, handles[fd]);
 }
 
 static void int21_9(void)
@@ -780,7 +793,7 @@ static void int21_9(void)
     int i = cpuGetAddrDS(cpuGetDX());
 
     for(; memory[i] != 0x24 && i < 0x100000; i++)
-        dos_putchar(memory[i]);
+        dos_putchar(memory[i], 1);
 
     cpuSetAL(0x24);
 }
@@ -1069,11 +1082,11 @@ void int21()
         exit(0);
     case 1: // CHARACTER INPUT WITH ECHO
         char_input(1);
-        dos_putchar(cpuGetAX() & 0xFF);
+        dos_putchar(cpuGetAX() & 0xFF, 1);
         check_screen();
         break;
     case 2: // PUTCH
-        dos_putchar(cpuGetDX() & 0xFF);
+        dos_putchar(cpuGetDX() & 0xFF, 1);
         check_screen();
         cpuSetAX(0x0200 | (cpuGetDX() & 0xFF)); // from intlist.
         break;
@@ -1093,7 +1106,7 @@ void int21()
         }
         else
         {
-            dos_putchar(cpuGetDX() & 0xFF);
+            dos_putchar(cpuGetDX() & 0xFF, 1);
             cpuSetAL(cpuGetDX());
         }
         break;
@@ -1109,9 +1122,13 @@ void int21()
         break;
     case 0xA: // BUFFERED INPUT
     {
-        // If we are reading from console, suspend keyboard handling
+        // If we are reading from console, suspend keyboard handling and update
+        // emulator state.
         if(devinfo[0] == 0x80D3)
+        {
             suspend_keyboard();
+            emulator_update();
+        }
 
         FILE *f = handles[0] ? handles[0] : stdin;
         int addr = cpuGetAddrDS(cpuGetDX());
@@ -1413,7 +1430,7 @@ void int21()
         cpuSetBX((dosDTA & 0x000FF));
         break;
     case 0x30: // DOS version: 3.30
-        cpuSetAX(0x1E03);
+        cpuSetAX(dosver);
         cpuSetBX(0x0001);
         break;
     case 0x33: // BREAK SETTINGS
@@ -1514,7 +1531,8 @@ void int21()
     }
     case 0x40: // WRITE
     {
-        FILE *f = handles[cpuGetBX()];
+        int fd = cpuGetBX();
+        FILE *f = handles[fd];
         if(!f)
         {
             cpuSetFlag(cpuFlag_CF);
@@ -1541,10 +1559,10 @@ void int21()
             cpuSetFlag(cpuFlag_CF);
             break;
         }
-        if(devinfo[cpuGetBX()] == 0x80D3 && video_active())
+        if(devinfo[fd] == 0x80D3)
         {
             for(unsigned i = 0; i < len; i++)
-                video_putch(buf[i]);
+                dos_putchar(buf[i], fd);
             check_screen();
             cpuSetAX(len);
         }
@@ -2290,6 +2308,23 @@ void init_dos(int argc, char **argv)
     init_nls_data();
     init_append();
 
+    // Init DOS version
+    if(getenv(ENV_DOSVER))
+    {
+        const char *ver = getenv(ENV_DOSVER);
+        char *end = 0;
+        int minor = 0;
+        int major = strtol(ver, &end, 10);
+
+        if(*end == '.' && end[1])
+            minor = strtol(end + 1, &end, 10);
+
+        if(*end || major < 1 || major > 6 || minor < 0 || minor > 99)
+            print_error("invalid DOS version '%s'\n", ver);
+        dosver = (minor << 8) | major;
+        debug(debug_dos, "set dos version to '%s' = 0x%04x\n", ver, dosver);
+    }
+
     // Init INTERRUPT handlers - point to our own handlers
     for(int i = 0; i < 256; i++)
     {
@@ -2354,7 +2389,7 @@ void init_dos(int argc, char **argv)
     else
     {
         // No CWD given, translate from base path of default drive
-        char *cwd = dos_real_path(dos_get_default_drive(), ".");
+        char *cwd = dos_real_path(".");
         if(cwd)
         {
             dos_change_cwd(cwd);
@@ -2397,7 +2432,7 @@ void init_dos(int argc, char **argv)
     const char *progname = getenv(ENV_PROGNAME);
     if(!progname)
     {
-        progname = dos_real_path(dos_get_default_drive(), argv[0]);
+        progname = dos_real_path(argv[0]);
         if(!progname)
             progname = argv[0];
     }
@@ -2434,14 +2469,5 @@ void int29(void)
     // Fast video output
     debug(debug_int, "D-29: AX=%04X\n", ax);
     debug(debug_dos, "D-29:   fast console out  AX=%04X\n", ax);
-
-    int ch = ax & 0xFF;
-    // If stdout is redirected or video is active, writes to video screen:
-    if(devinfo[1] != 0x80D3 || video_active())
-        video_putch(ch);
-    // Else, write to console
-    else if(!handles[1])
-        putchar(ch);
-    else
-        fputc(ch, handles[1]);
+    dos_putchar(ax & 0xFF, 1);
 }

@@ -10,4 +10,6 @@
 #define ENV_DRIVE     "EMU2_DRIVE_"
 #define ENV_CODEPAGE  "EMU2_CODEPAGE"
 #define ENV_LOWMEM    "EMU2_LOWMEM"
+#define ENV_ROWS      "EMU2_ROWS"
+#define ENV_DOSVER    "EMU2_DOSVER"
 #define ENV_EMSMEM    "EMU2_EMSMEM"

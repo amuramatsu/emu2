@@ -15,9 +15,9 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <math.h>
+#include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <signal.h>
 #include <string.h>
 #include <sys/time.h>
 #include <sys/wait.h>
@@ -29,7 +29,7 @@ uint8_t read_port(unsigned port)
     {
         static int retrace = 0;
         retrace++;
-        return retrace & 0x09;
+        return (retrace >> 1) & 0x09;
     }
     else if(port == 0x3D4 || port == 0x3D5)
         return video_crtc_read(port);
@@ -58,6 +58,7 @@ void emulator_update(void)
     update_timer();
     check_screen();
     update_keyb();
+    fflush(stdout);
 }
 
 // BIOS - GET EQUIPMENT FLAG
@@ -177,15 +178,6 @@ static void init_bios_mem(void)
     // INT10 functions before reading.
     memory[0x413] = 0x80; // ram size: 640k
     memory[0x414] = 0x02; //
-    memory[0x449] = 3;    // video mode
-    memory[0x44A] = 80;   // screen columns
-    memory[0x44B] = 0;    // ...
-    memory[0x450] = 0;    // cursor column
-    memory[0x451] = 0;    // cursor row
-    memory[0x462] = 0;    // current screen page
-    memory[0x463] = 0xD4; // I/O port of video CRTC
-    memory[0x464] = 0x03; // ...
-    memory[0x484] = 24;   // screen rows - 1
     // Store an "INT-19h" instruction in address FFFF:0000
     memory[0xFFFF0] = 0xCB;
     memory[0xFFFF1] = 0x19;
