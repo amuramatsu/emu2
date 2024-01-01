@@ -623,6 +623,8 @@ static void dos_find_next(int first)
         // Next file
         p->find_first_ptr++;
         cpuClrFlag(cpuFlag_CF);
+        // Some DOS programs require returning AX=0 on success.
+        cpuSetAX(0);
     }
 }
 
