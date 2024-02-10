@@ -3,12 +3,19 @@
 #include "env.h"
 #include <stdlib.h>
 #include <string.h>
+#include <iconv.h>
+
+#ifndef ICONV_UCS2BE_NAME
+#define ICONV_UCS2BE_NAME "UCS-2BE"
+#endif
 
 /* List of code-pages */
 struct cp_data
 {
     const char *names;
     const uint16_t table[256];
+    const uint8_t dbcs[8];
+    const char *iconv_name;
 };
 
 static const struct cp_data cp_data[] = {
@@ -47,7 +54,8 @@ static const struct cp_data cp_data[] = {
             0x03b1, 0x00df, 0x0393, 0x03c0, 0x03a3, 0x03c3, 0x00b5, 0x03c4,
             0x03a6, 0x0398, 0x03a9, 0x03b4, 0x221e, 0x03c6, 0x03b5, 0x2229,
             0x2261, 0x00b1, 0x2265, 0x2264, 0x2320, 0x2321, 0x00f7, 0x2248,
-            0x00b0, 0x2219, 0x00b7, 0x221a, 0x207f, 0x00b2, 0x25a0, 0x00a0}
+            0x00b0, 0x2219, 0x00b7, 0x221a, 0x207f, 0x00b2, 0x25a0, 0x00a0},
+        { 0, 0, 0, 0, 0, 0, 0, 0}, NULL
     },
     {
         "850,CP850,IBM850,Latin1,WEU",
@@ -84,7 +92,8 @@ static const struct cp_data cp_data[] = {
             0x00d3, 0x00df, 0x00d4, 0x00d2, 0x00f5, 0x00d5, 0x00b5, 0x00fe,
             0x00de, 0x00da, 0x00db, 0x00d9, 0x00fd, 0x00dd, 0x00af, 0x00b4,
             0x00ad, 0x00b1, 0x2017, 0x00be, 0x00b6, 0x00a7, 0x00f7, 0x00b8,
-            0x00b0, 0x00a8, 0x00b7, 0x00b9, 0x00b3, 0x00b2, 0x25a0, 0x00a0}
+            0x00b0, 0x00a8, 0x00b7, 0x00b9, 0x00b3, 0x00b2, 0x25a0, 0x00a0},
+        { 0, 0, 0, 0, 0, 0, 0, 0}, NULL
     },
     {
         "852,CP850,IBM852,Latin2,CEU",
@@ -121,7 +130,8 @@ static const struct cp_data cp_data[] = {
             0x00d3, 0x00df, 0x00d4, 0x0143, 0x0144, 0x0148, 0x0160, 0x0161,
             0x0154, 0x00da, 0x0155, 0x0170, 0x00fd, 0x00dd, 0x0163, 0x00b4,
             0x00ad, 0x02dd, 0x02db, 0x02c7, 0x02d8, 0x00a7, 0x00f7, 0x00b8,
-            0x00b0, 0x00a8, 0x02d9, 0x0171, 0x0158, 0x0159, 0x25a0, 0x00a0}
+            0x00b0, 0x00a8, 0x02d9, 0x0171, 0x0158, 0x0159, 0x25a0, 0x00a0},
+        { 0, 0, 0, 0, 0, 0, 0, 0}, NULL
     },
     {
         "Kamenický,KEYBCS2,KAMENICKY,Czech,CZ,SK",
@@ -158,7 +168,8 @@ static const struct cp_data cp_data[] = {
             0x03b1, 0x03b2, 0x0393, 0x03c0, 0x03a3, 0x03c3, 0x03bc, 0x03c4,
             0x03a6, 0x0398, 0x03a9, 0x03b4, 0x221e, 0x2205, 0x03b5, 0x2229,
             0x2261, 0x00b1, 0x2265, 0x2264, 0x2320, 0x2321, 0x00f7, 0x2248,
-            0x2218, 0x00b7, 0x2219, 0x221a, 0x207f, 0x00b2, 0x25a0, 0x00a0}
+            0x2218, 0x00b7, 0x2219, 0x221a, 0x207f, 0x00b2, 0x25a0, 0x00a0},
+        { 0, 0, 0, 0, 0, 0, 0, 0}, NULL
     },
     {
         "866,CP866,IBM866,RU",
@@ -195,7 +206,47 @@ static const struct cp_data cp_data[] = {
             0x0440, 0x0441, 0x0442, 0x0443, 0x0444, 0x0445, 0x0446, 0x0447,
             0x0448, 0x0449, 0x044a, 0x044b, 0x044c, 0x044d, 0x044e, 0x044f,
             0x0401, 0x0451, 0x0404, 0x0454, 0x0407, 0x0457, 0x040e, 0x045e,
-            0x00B0, 0x2219, 0x00B7, 0x221A, 0x2116, 0x00A4, 0x25A0, 0x00A0}
+            0x00B0, 0x2219, 0x00B7, 0x221A, 0x2116, 0x00A4, 0x25A0, 0x00A0},
+        { 0, 0, 0, 0, 0, 0, 0, 0}, NULL
+    },
+
+    {
+        "932,CP932,IBM932,Japanese,ShiftJIS",
+        {
+            0x0020, 0x2554, 0x2557, 0x255a, 0x255d, 0x2551, 0x2550, 0x2193,
+            0x0020, 0x25cb, 0x0020, 0x2573, 0x0020, 0x0020, 0x2593, 0x263c,
+            0x256c, 0x0020, 0x2195, 0x0020, 0x2591, 0x2569, 0x2566, 0x2563,
+            0x0020, 0x2560, 0x2592, 0x21b2, 0x2191, 0x2758, 0x2192, 0x2190,
+            0x0020, 0x0021, 0x0022, 0x0023, 0x0024, 0x0025, 0x0026, 0x0027,
+            0x0028, 0x0029, 0x002a, 0x002b, 0x002c, 0x002d, 0x002e, 0x002f,
+            0x0030, 0x0031, 0x0032, 0x0033, 0x0034, 0x0035, 0x0036, 0x0037,
+            0x0038, 0x0039, 0x003a, 0x003b, 0x003c, 0x003d, 0x003e, 0x003f,
+            0x0040, 0x0041, 0x0042, 0x0043, 0x0044, 0x0045, 0x0046, 0x0047,
+            0x0048, 0x0049, 0x004a, 0x004b, 0x004c, 0x004d, 0x004e, 0x004f,
+            0x0050, 0x0051, 0x0052, 0x0053, 0x0054, 0x0055, 0x0056, 0x0057,
+            0x0058, 0x0059, 0x005a, 0x005b, 0x005c, 0x005d, 0x005e, 0x005f,
+            0x0060, 0x0061, 0x0062, 0x0063, 0x0064, 0x0065, 0x0066, 0x0067,
+            0x0068, 0x0069, 0x006a, 0x006b, 0x006c, 0x006d, 0x006e, 0x006f,
+            0x0070, 0x0071, 0x0072, 0x0073, 0x0074, 0x0075, 0x0076, 0x0077,
+            0x0078, 0x0079, 0x007a, 0x007b, 0x007c, 0x007d, 0x007e, 0x2302,
+
+            0x00c7, 0x0081, 0x0082, 0x0083, 0x0084, 0x0085, 0x0086, 0x0087,
+            0x0088, 0x0089, 0x008a, 0x008b, 0x008c, 0x008d, 0x008e, 0x008f,
+            0x0090, 0x0091, 0x0092, 0x0093, 0x0094, 0x0095, 0x0096, 0x0097,
+            0x0098, 0x0099, 0x009a, 0x009b, 0x009c, 0x009d, 0x009e, 0x009f,
+            0x0020, 0xff61, 0xff62, 0xff63, 0xff64, 0xff65, 0xff66, 0xff67,
+            0xff68, 0xff69, 0xff6a, 0xff6b, 0xff6c, 0xff6d, 0xff6e, 0xff6f,
+            0xff70, 0xff71, 0xff72, 0xff73, 0xff74, 0xff75, 0xff76, 0xff77,
+            0xff78, 0xff79, 0xff7a, 0xff7b, 0xff7c, 0xff7d, 0xff7e, 0xff7f,
+            0xff80, 0xff81, 0xff82, 0xff83, 0xff84, 0xff85, 0xff86, 0xff87,
+            0xff88, 0xff89, 0xff8a, 0xff8b, 0xff8c, 0xff8d, 0xff8e, 0xff8f,
+            0xff90, 0xff91, 0xff92, 0xff93, 0xff94, 0xff95, 0xff96, 0xff97,
+            0xff98, 0xff99, 0xff9a, 0xff9b, 0xff9c, 0xff9d, 0xff9e, 0xff9f,
+            0x00e0, 0x00e1, 0x00e2, 0x00e3, 0x00e4, 0x00e5, 0x00e6, 0x00e7,
+            0x00e8, 0x00e9, 0x00ea, 0x00eb, 0x00ec, 0x00ed, 0x00ee, 0x00ef,
+            0x00f0, 0x00f1, 0x00f2, 0x00f3, 0x00f4, 0x00f5, 0x00f6, 0x00f7,
+            0x00f8, 0x00f9, 0x00fa, 0x00fb, 0x00fc, 0x00b2, 0x25a0, 0x00a0},
+        { 0x81, 0x9F, 0xE0, 0xFC, 0, 0, 0, 0 }, "CP932,MS_KANJI,SHIFT_JIS,SJIS"
     },
 
     {
@@ -204,6 +255,38 @@ static const struct cp_data cp_data[] = {
 };
 
 static const uint16_t *cp_table = cp_data[0].table;
+const uint8_t *cp_dbcs = cp_data[0].dbcs;
+static const char *cp_iconv_name = NULL;
+static uint8_t dbcs_prev_char = 0;
+static iconv_t cp_iconv_input = (iconv_t)(-1);
+static iconv_t cp_iconv_output = (iconv_t)(-1);
+
+static void set_codepage_iconv() {
+    if (cp_iconv_name) {
+        char *names = strdup(cp_iconv_name);
+        char *name = strtok(names, ",");
+        for(; name; name = strtok(0, ","))
+        {
+            cp_iconv_input =
+                iconv_open(name, ICONV_UCS2BE_NAME);
+            cp_iconv_output =
+                iconv_open(ICONV_UCS2BE_NAME, name);
+            if (cp_iconv_input != (iconv_t)(-1) &&
+                cp_iconv_output != (iconv_t)(-1))
+                break;
+            if (cp_iconv_input != (iconv_t)(-1))
+                iconv_close(cp_iconv_input);
+            if (cp_iconv_output != (iconv_t)(-1))
+                iconv_close(cp_iconv_output);
+            cp_iconv_input = (iconv_t)(-1);
+            cp_iconv_output = (iconv_t)(-1);
+        }
+        free(names);
+        debug(debug_dos, "set_codepage_iconv '%s'<->'%s'\n",
+              ICONV_UCS2BE_NAME, name ? name : "(NULL)");
+    }
+    dbcs_prev_char = 0;
+}
 
 static int read_codepage_file(const char *fname)
 {
@@ -212,13 +295,16 @@ static int read_codepage_file(const char *fname)
         return 0;
     // Note: this leaks memory, so this function should be called only once.
     uint16_t *new_table = malloc(sizeof(cp_table[0]) * 256);
-    if(!new_table)
+    uint8_t *new_dbcs = malloc(sizeof(cp_dbcs[0]) * 8);
+    char *new_iconv = NULL;
+    if(!new_table || !new_dbcs)
     {
         fclose(f);
         return 0;
     }
     // Start with a copy of CP437
     memcpy(new_table, cp_data[0].table, sizeof(cp_table[0]) * 256);
+    memcpy(new_dbcs, cp_data[0].dbcs, sizeof(cp_dbcs[0]) * 8);
     // Read all lines in file
     while(!feof(f))
     {
@@ -234,6 +320,23 @@ static int read_codepage_file(const char *fname)
 
         if(line[0] == '#')
             continue;
+        if(strncmp(line, "dbcs:", 5) == 0)
+        {
+            int dbcs[8];
+            sscanf(line+5, "%x %x %x %x %x %x %x %x",
+                   dbcs, dbcs+1, dbcs+2, dbcs+3,
+                   dbcs+4, dbcs+5, dbcs+6, dbcs+7);
+            for (int i = 0; i < 8; i++)
+                new_dbcs[i] = dbcs[i] & 0xff;
+            continue;
+        }
+        if(strncmp(line, "iconv:", 5) == 0)
+        {
+            char iconv_name[512];
+            sscanf(line+6, "%s", iconv_name);
+            new_iconv = strdup(iconv_name);
+            continue;
+        }
         if(2 == sscanf(line, "%i %i", &dcode, &ucode))
         {
             if(dcode < 0 || dcode > 256)
@@ -259,6 +362,9 @@ static int read_codepage_file(const char *fname)
     }
     fclose(f);
     cp_table = new_table;
+    cp_dbcs = new_dbcs;
+    cp_iconv_name = new_iconv;
+    set_codepage_iconv();
     return 1;
 }
 
@@ -274,6 +380,9 @@ void set_codepage(const char *cp_name)
             {
                 debug(debug_dos, "set_codepage: DOS CP set to '%s'\n", names);
                 cp_table = cp->table;
+                cp_dbcs = cp->dbcs;
+                cp_iconv_name = cp->iconv_name;
+                set_codepage_iconv();
                 return;
             }
         }
@@ -302,19 +411,84 @@ void init_codepage(void)
     }
 }
 
-/* Transforms a DOS char to Unicode */
-int get_unicode(uint8_t cp)
+int check_dbcs_1st(uint8_t cp)
 {
+    for (int i = 0; i < 4; i++) {
+        uint8_t lo = cp_dbcs[i*2];
+        uint8_t hi = cp_dbcs[i*2 + 1];
+        if (lo == 0 && hi == 0)
+            break;
+        if (lo <= cp && cp <= hi)
+            return 1;
+    }
+    return 0;
+}
+
+/* Transforms a DOS char to Unicode */
+int get_unicode(uint8_t cp, int *dbcs)
+{
+    if (dbcs_prev_char) {
+        uint8_t inbuf[2];
+        uint8_t outbuf[10];
+        char *src, *dst;
+        size_t srclen, dstlen;
+        int s;
+
+        src = (char *)inbuf;
+        srclen = sizeof(inbuf);
+        dst = (char *)outbuf;
+        dstlen = sizeof(outbuf);
+
+        inbuf[0] = dbcs_prev_char;
+        inbuf[1] = cp;
+        dbcs_prev_char = 0;
+        s = iconv(cp_iconv_output, &src, &srclen, &dst, &dstlen);
+        if (s == (size_t)-1)
+            return 0;
+        if (dbcs)
+            *dbcs = 1;
+        return (outbuf[0] << 8) | outbuf[1];
+    }
+    else if (check_dbcs_1st(cp)) {
+        dbcs_prev_char = cp;
+        if (dbcs)
+            *dbcs = 0;
+        return 0;
+    }
+    if (dbcs)
+        *dbcs = 0;
     return cp_table[cp];
 }
 
 /* Transforms a Unicode code-point to the DOS char */
-int get_dos_char(int uc)
+int get_dos_char(int uc, int *c1, int *c2)
 {
+    uint8_t inbuf[2];
+    uint8_t outbuf[2];
+    char *src, *dst;
+    size_t srclen, dstlen;
+    int s;
+
     // TODO: faster searching
-    for(int i = 0; i < 256; i++)
-        if(uc == cp_table[i])
-            return i;
+    for (int i = 0; i < 256; i++) {
+        if(uc == cp_table[i]) {
+            *c1 = i;
+            return 1;
+        }
+    }
+    src = (char *)inbuf;
+    srclen = sizeof(inbuf);
+    dst = (char *)outbuf;
+    dstlen = sizeof(outbuf);
+    inbuf[0] = (uc >> 8) & 0xff;
+    inbuf[1] = uc & 0xff;
+    s = iconv(cp_iconv_input, &src, &srclen, &dst, &dstlen);
+    if (s != (size_t)-1) {
+        *c1 = outbuf[0] & 0xFF;
+        *c2 = outbuf[1] & 0xFF;
+        return sizeof(outbuf) - dstlen;
+    }
     // Assume space is always valid
-    return ' ';
+    *c1 = ' ';
+    return 1;
 }

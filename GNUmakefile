@@ -1,6 +1,6 @@
 SHELL=/bin/sh
 CFLAGS?=-O3 -DEMS_SUPPORT
-LDLIBS?=-lm
+LDLIBS?=-liconv -lm
 INSTALL?=install
 PREFIX?=/usr
 

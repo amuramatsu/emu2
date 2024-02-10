@@ -33,6 +33,9 @@ static uint8_t *nls_country_info;
 static uint32_t dos_sysvars;
 static uint32_t dos_append;
 
+// Codepage Data
+extern uint8_t *cp_dbcs;
+
 // Last error - used to implement "get extended error"
 static uint8_t dos_error;
 
@@ -833,6 +836,27 @@ static void dos_get_drive_info(uint8_t drive)
     cpuClrFlag(cpuFlag_CF);
 }
 
+static void fputc_unicode(uint8_t ch, FILE* fd)
+{
+    uint16_t uc = get_unicode(ch, NULL);
+    if(uc == 0)
+        /*NOP*/;
+    else if(uc < 128)
+        fputc(uc, fd);
+    else if(uc < 0x800)
+    {
+        fputc(0xC0 | (uc >> 6), fd);
+        fputc(0x80 | (uc & 0x3F), fd);
+    }
+    else
+    {
+        fputc(0xE0 | (uc >> 12), fd);
+        fputc(0x80 | ((uc >> 6) & 0x3F), fd);
+        fputc(0x80 | (uc & 0x3F), fd);
+    }
+    fflush(fd);
+}
+
 // Writes a character to standard output.
 static void dos_putchar(uint8_t ch, int fd)
 {
@@ -848,13 +872,15 @@ static void dos_putchar(uint8_t ch, int fd)
         else
             video_putch(ch);
     }
+    else if(devinfo[fd] == 0x80D3)
+        fputc_unicode(ch, handles[fd]);
     else if(!handles[fd])
-        putchar(ch);
+        fputc_unicode(ch, stdout);
     else if(!fd && devinfo[0] == 0x80D3 && devinfo[1] == 0x80D3)
         // DOS programs can write to STDIN and expect output to the terminal.
         // This hack will only work if STDOUT is not redirected, in real DOS
         // you can redirect STDOUT and write to STDIN.
-        fputc(ch, handles[1]);
+        fputc_unicode(ch, handles[1]);
     else
         fputc(ch, handles[fd]);
 }
@@ -2622,9 +2648,17 @@ static void init_nls_data(void)
     putmem(nls_collating_table + 2, collating_table, 256);
 
     // Double-byte-chars table
-    nls_dbc_set_table = get_static_memory(4, 0);
-    put16(nls_dbc_set_table, 0); // Length
-    put16(nls_dbc_set_table, 0); // one entry at least.
+    int dbcs_num;
+    for (dbcs_num = 0; dbcs_num < 4; dbcs_num++) {
+        if (cp_dbcs[dbcs_num*2] == 0 && cp_dbcs[dbcs_num*2+1] == 0)
+            break;
+    }
+    nls_dbc_set_table = get_static_memory(dbcs_num*2+2, 0);
+    for (int i = 0; i < dbcs_num; i++) {
+        put8(nls_dbc_set_table+i*2, cp_dbcs[i*2]);
+        put8(nls_dbc_set_table+i*2+1, cp_dbcs[i*2+1]);
+    }
+    put16(nls_dbc_set_table+dbcs_num*2, 0);
 }
 
 void init_dos(int argc, char **argv)

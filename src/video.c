@@ -311,10 +311,13 @@ void video_init_mem(void)
 }
 
 // Writes a DOS character to the current terminal position
-static void put_vc(uint8_t c)
+static int put_vc(uint8_t c)
 {
-    uint16_t uc = get_unicode(c);
-    if(uc < 128)
+    int dbcs;
+    uint16_t uc = get_unicode(c, &dbcs);
+    if(uc == 0)
+        return 0;
+    else if(uc < 128)
         putc(uc, tty_file);
     else if(uc < 0x800)
     {
@@ -327,6 +330,9 @@ static void put_vc(uint8_t c)
         putc(0x80 | ((uc >> 6) & 0x3F), tty_file);
         putc(0x80 | (uc & 0x3F), tty_file);
     }
+    if(dbcs)
+        return 2;
+    return 1;
 }
 
 // Move terminal cursor to the position
@@ -371,11 +377,20 @@ static void term_goto_xy(unsigned x, unsigned y)
 // Outputs a character with the given attributes at the given position
 static void put_vc_xy(uint8_t vc, uint8_t color, unsigned x, unsigned y)
 {
-    term_goto_xy(x, y);
+    static unsigned prev_chardraw = (unsigned)-1;
+    static int prev_y = -1;
+    int s;
+    if (prev_chardraw != 0 || y != prev_y)
+        term_goto_xy(x, y);
     set_color(color);
 
-    put_vc(vc);
-    term_posx++;
+    s = put_vc(vc);
+    prev_y = y;
+    if (s == 0)
+        prev_chardraw = 0;
+    else
+        prev_chardraw = 1;
+    term_posx += s;
     if(term_posx > term_sx)
         term_posx = term_sx;
 
