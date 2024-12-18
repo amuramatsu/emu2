@@ -1,6 +1,8 @@
 #include "dbg.h"
 #include "env.h"
 #include "version.h"
+#include "os.h"
+
 #include <fcntl.h>
 #include <stdarg.h>
 #include <stdlib.h>
@@ -8,10 +10,19 @@
 
 char *prog_name;
 
-void print_usage(void)
+void print_version(void)
 {
-    printf("EMU2 - Simple x86 + DOS Emulator, version " EMU2_VERSION "\n"
-           "\n"
+    printf("EMU2 - Simple x86 + DOS Emulator, version " EMU2_VERSION
+#ifdef __DATE__
+           "  (Compiled " __DATE__ ")"
+#endif
+           "\n");
+}
+
+NORETURN void print_usage(void)
+{
+    print_version();
+    printf("\n"
            "Usage: %s [options] <prog.exe> [args...] [-- environment vars]\n"
            "\n"
            "Options (processed before program name):\n"
@@ -41,7 +52,7 @@ void print_usage(void)
     exit(EXIT_SUCCESS);
 }
 
-void print_usage_error(const char *format, ...)
+NORETURN void print_usage_error(const char *format, ...)
 {
     va_list ap;
     fprintf(stderr, "%s: ", prog_name);
@@ -52,7 +63,7 @@ void print_usage_error(const char *format, ...)
     exit(EXIT_FAILURE);
 }
 
-void print_error(const char *format, ...)
+NORETURN void print_error(const char *format, ...)
 {
     va_list ap;
     fprintf(stderr, "%s: ", prog_name);
@@ -80,6 +91,16 @@ static FILE *open_log_file(const char *base, const char *type)
     return fdopen(fd, "w");
 }
 
+static void close_log_files(void)
+{
+    for(int i = 0; i < debug_MAX; i++)
+        if(debug_files[i] != 0)
+        {
+            fclose(debug_files[i]);
+            debug_files[i] = 0;
+        }
+}
+
 void init_debug(const char *base)
 {
     if(getenv(ENV_DBG_NAME))
@@ -93,12 +114,13 @@ void init_debug(const char *base)
             if(strstr(spec, debug_names[i]))
                 debug_files[i] = open_log_file(base, debug_names[i]);
         }
+        atexit(close_log_files);
     }
 }
 
 int debug_active(enum debug_type dt)
 {
-    if(dt >= 0 && dt < debug_MAX)
+    if(dt < debug_MAX)
         return debug_files[dt] != 0;
     else
         return 0;

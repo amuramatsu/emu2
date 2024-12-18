@@ -212,6 +212,11 @@ static int read_codepage_file(const char *fname)
         return 0;
     // Note: this leaks memory, so this function should be called only once.
     uint16_t *new_table = malloc(sizeof(cp_table[0]) * 256);
+    if(!new_table)
+    {
+        fclose(f);
+        return 0;
+    }
     // Start with a copy of CP437
     memcpy(new_table, cp_data[0].table, sizeof(cp_table[0]) * 256);
     // Read all lines in file
@@ -222,7 +227,8 @@ static int read_codepage_file(const char *fname)
         if(1 != fscanf(f, " %255[^\n\r#]%*[^\n\r]\n", line))
         {
             // Try to consume comments
-            fscanf(f, "%*[^\n\r]\n");
+            if(EOF == fscanf(f, "%*[^\n\r]\n"))
+                break;
             continue;
         }
 
@@ -233,6 +239,7 @@ static int read_codepage_file(const char *fname)
             if(dcode < 0 || dcode > 256)
             {
                 fclose(f);
+                free(new_table);
                 print_error("reading codepage '%s', line '%s', invalid byte value %d\n",
                             fname, line, dcode);
             }
@@ -242,6 +249,7 @@ static int read_codepage_file(const char *fname)
             if(ucode < 32 || ucode > 0xFFFF)
             {
                 fclose(f);
+                free(new_table);
                 print_error(
                     "reading codepage '%s', line '%s', invalid unicode value %d\n", fname,
                     line, ucode);
@@ -269,6 +277,7 @@ void set_codepage(const char *cp_name)
                 return;
             }
         }
+        free(names);
     }
     if(!read_codepage_file(cp_name))
         print_error("missing or unknown codepage '%s', use '?' for a list.\n", cp_name);

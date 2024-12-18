@@ -2,6 +2,7 @@
 #include "codepage.h"
 #include "dbg.h"
 #include "emu.h"
+#include "os.h"
 
 #include <errno.h>
 #include <fcntl.h>
@@ -12,18 +13,27 @@
 #include <termios.h>
 #include <unistd.h>
 
+#define MAX_KEYB_CALLS 10
+
 static int term_raw = 0;
 static int tty_fd = -1;
 static int queued_key = -1;
 static int waiting_key = 0;
 static int mod_state = 0;
-static int throttle_calls = 4;
+static int throttle_calls = 0;
 
 // Copy mod-state to BIOS memory area
 static void update_bios_state(void)
 {
     // TODO: should update all keyboard buffer variables
     memory[0x417] = mod_state;
+}
+
+// Update keyboard buffer pointer
+static void keyb_read_buffer(void)
+{
+    int ptr = (memory[0x41A] - 0x1E) & 0x1F;
+    memory[0x41A] = 0x1E + ((ptr + 2) & 0x1F);
 }
 
 // Table of scan codes for keys + modifiers:
@@ -223,7 +233,7 @@ static int get_esc_secuence(void)
     // ESC <number>                     ALT+number
     // ESC [ <modifiers> <letter>       Function Keys
     mod_state = 0;
-    char ch = 0xFF;
+    char ch = '\xFF';
     if(read(tty_fd, &ch, 1) == 0)
         return 0x011B; // ESC
     if(ch != '[' && ch != 'O')
@@ -232,7 +242,7 @@ static int get_esc_secuence(void)
     int n1 = 0, n2 = 0;
     while(1)
     {
-        char cn = 0xFF;
+        char cn = '\xFF';
         if(read(tty_fd, &cn, 1) == 0)
         {
             if(n1 == 0 && n2 == 0)
@@ -312,7 +322,7 @@ static int get_esc_secuence(void)
 
 static int read_key(void)
 {
-    char ch = 0xFF;
+    char ch = '\xFF';
     // Reads first key code
     if(read(tty_fd, &ch, 1) == 0)
         return -1; // No data
@@ -329,14 +339,14 @@ static int read_key(void)
     // Unicode character, read rest of codes
     if((ch & 0xE0) == 0xC0)
     {
-        char ch1 = 0xFF;
+        char ch1 = '\xFF';
         if(read(tty_fd, &ch1, 1) == 0 || (ch1 & 0xC0) != 0x80)
             return 0; // INVALID UTF-8
         return get_dos_char(((ch & 0x1F) << 6) | (ch1 & 0x3F));
     }
     else if((ch & 0xF0) == 0xE0)
     {
-        char ch1 = 0xFF, ch2 = 0xFF;
+        char ch1 = '\xFF', ch2 = '\xFF';
         if(read(tty_fd, &ch1, 1) == 0 || (ch1 & 0xC0) != 0x80 ||
            read(tty_fd, &ch2, 1) == 0 || (ch2 & 0xC0) != 0x80)
             return -1; // INVALID UTF-8
@@ -344,7 +354,7 @@ static int read_key(void)
     }
     else if((ch & 0xF8) == 0xF0)
     {
-        char ch1 = 0xFF, ch2 = 0xFF, ch3 = 0xFF;
+        char ch1 = '\xFF', ch2 = '\xFF', ch3 = '\xFF';
         if(read(tty_fd, &ch1, 1) == 0 || (ch1 & 0xC0) != 0x80 ||
            read(tty_fd, &ch2, 1) == 0 || (ch2 & 0xC0) != 0x80 ||
            read(tty_fd, &ch3, 1) == 0 || (ch3 & 0xC0) != 0x80)
@@ -368,7 +378,15 @@ static void set_raw_term(int raw)
         struct termios newattr;
         tcgetattr(tty_fd, &oldattr);
         newattr = oldattr;
+#if defined(NO_CFMAKERAW)
+        newattr.c_iflag &= ~(IMAXBEL|IGNBRK|BRKINT|PARMRK|ISTRIP|INLCR|IGNCR|ICRNL|IXON);
+        newattr.c_oflag &= ~OPOST;
+        newattr.c_lflag &= ~(ECHO|ECHONL|ICANON|ISIG|IEXTEN);
+        newattr.c_cflag &= ~(CSIZE|PARENB);
+        newattr.c_cflag |= CS8;
+#else
         cfmakeraw(&newattr);
+#endif
         newattr.c_cc[VMIN] = 0;
         newattr.c_cc[VTIME] = 0;
         tcsetattr(tty_fd, TCSANOW, &newattr);
@@ -389,10 +407,7 @@ static void init_keyboard(void)
     {
         tty_fd = open("/dev/tty", O_NOCTTY | O_RDONLY);
         if(tty_fd < 0)
-        {
             print_error("error at open TTY, %s\n", strerror(errno));
-            exit(1);
-        }
         atexit(exit_keyboard);
     }
     set_raw_term(1);
@@ -407,7 +422,7 @@ void suspend_keyboard(void)
 
 void keyb_wakeup(void)
 {
-    throttle_calls = 4;
+    throttle_calls = 0;
 }
 
 int kbhit(void)
@@ -433,15 +448,16 @@ int kbhit(void)
                 // Arbitrary limit to 4 calls each 100Hz
                 if((t1 - last_time) < 10000)
                 {
-                    throttle_calls--;
-                    if(throttle_calls <= 0)
+                    throttle_calls++;
+                    if(throttle_calls > MAX_KEYB_CALLS)
                     {
                         debug(debug_int, "keyboard sleep.\n");
                         usleep(10000);
+                        throttle_calls = 0;
                     }
                 }
                 else
-                    throttle_calls = 4;
+                    throttle_calls = 0;
                 last_time = t1;
             }
         }
@@ -465,6 +481,8 @@ int getch(int detect_brk)
         raise(SIGINT);
     ret = queued_key;
     queued_key = -1;
+    keyb_read_buffer();
+    update_bios_state();
     return ret;
 }
 
@@ -475,20 +493,86 @@ void update_keyb(void)
         kbhit();
 }
 
+// Keyboard controller status
+static uint8_t portB_ctl = 0;
+static uint8_t keyb_command = 0;
+
 // Handle keyboard controller port reading
 uint8_t keyb_read_port(unsigned port)
 {
     if(queued_key == -1)
         kbhit();
-    debug(debug_int, "keyboard read_port: %02X (key=%04X)\n", port, queued_key);
+    debug(debug_int, "keyboard read_port: %02X (key=%04X)\n", port, 0xFFFFU & queued_key);
     if(port == 0x60)
         return queued_key >> 8;
+    else if(port == 0x61)
+        return portB_ctl; // Controller B, used for speaker output
+    else if(port == 0x64)
+        // bit0 == 1 if there is data available.
+        return (queued_key != -1) | ((keyb_command != 0) << 3);
     else
         return 0xFF;
 }
 
+// Handle keyboard controller port writes
+void keyb_write_port(unsigned port, uint8_t value)
+{
+    debug(debug_int, "keyboard write_port: %02X <- %02X\n", port, value);
+    if(port == 0x60)
+    {
+        // Write to keyboard data
+        if(keyb_command == 0)
+        {
+            queued_key = value << 8;
+        }
+        else
+        {
+            // Handle keyboard commands
+            if(keyb_command == 0xD1) // Write output port
+            {
+                if(value & 1)
+                {
+                    // System reset
+                    debug(debug_int, "System reset via invalid keyboard I/O!\n");
+                    exit(0);
+                }
+                keyb_command = 0;
+            }
+        }
+        return;
+    }
+    else if(port == 0x61)
+        // Store speaker control bits
+        portB_ctl = value & 0x03;
+    else if(port == 0x64)
+    {
+        // Commands to keyboard controller
+        keyb_command = value;
+        if((keyb_command & 0xF0) == 0xF0)
+        {
+            int bits = keyb_command & 0x0F;
+            if(bits & 1)
+            {
+                // System reset
+                debug(debug_int, "System reset via keyboard controller!\n");
+                exit(0);
+            }
+            keyb_command = 0;
+        }
+    }
+}
+
+void keyb_handle_irq(void)
+{
+    // The BIOS should read a key pressed here and add it to the keyboard buffer.
+    int ptr = (memory[0x41C] - 0x1E) & 0x1F;
+    memory[0x41E + ptr] = queued_key & 0xFF;
+    memory[0x41F + ptr] = queued_key >> 8;
+    memory[0x41C] = 0x1E + ((ptr + 2) & 0x1F);
+}
+
 // BIOS keyboards handler
-void int16()
+void intr16(void)
 {
     debug(debug_int, "B-16%04X: BX=%04X\n", cpuGetAX(), cpuGetBX());
     unsigned ax = cpuGetAX();
@@ -511,6 +595,8 @@ void int16()
             cpuClrFlag(cpuFlag_ZF);
         break;
     case 2: // GET SHIFT FLAGS
+        // Start keyboard handling and read key to fill mod_state
+        kbhit();
         cpuSetAX(mod_state);
         break;
     default:

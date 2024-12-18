@@ -11,22 +11,46 @@
 // Emulate BIOS time
 static uint32_t bios_timer = 0;
 static uint16_t bios_dater = 0;
+static uint64_t start_timer = 0;
+
+// Reads BIOS timer.
+// We emulate the timer as counting exactly 1573040 (0x1800B0) counts per day,
+// as per IBM PC standard; this gives a frequency of (19663/1080)Hz
+static int64_t time_to_bios(struct timeval tv)
+{
+    int64_t sec = tv.tv_sec;
+    int64_t usec = tv.tv_usec;
+    return sec * 19663 / 1080 + usec * 19663 / 1080000000;
+}
+
 void update_timer(void)
 {
     struct timeval tv;
-    struct timezone tz;
-    static long start_day = 0;
-    gettimeofday(&tv, &tz);
-    if(start_day == 0)
-        start_day = (tv.tv_sec - tz.tz_minuteswest * 60) / (24 * 60 * 60);
+    gettimeofday(&tv, 0);
+    if(start_timer == 0) {
+        // Create a time_t value at the start of the day, in local time
+        struct timeval td = tv;
+        struct tm lt;
+        localtime_r(&td.tv_sec, &lt);
+        lt.tm_sec = lt.tm_min = lt.tm_hour = 0;
+        td.tv_sec = mktime(&lt);
+        start_timer = time_to_bios(td);
+    }
 
-    int isec = (tv.tv_sec - tz.tz_minuteswest * 60) - (24 * 60 * 60) * start_day;
-    long cnt = lrint((isec + tv.tv_usec * 0.000001) * 19663.0 / 1080.0);
-
+    long cnt = time_to_bios(tv) - start_timer;
     bios_timer = cnt % 0x1800B0;
-    bios_dater = cnt / 0x1800B0;
+    bios_dater = (cnt / 0x1800B0) & 0xFF;
     put32(0x46C, bios_timer);
-    memory[0x470] = bios_dater & 0xFF;
+    memory[0x470] = bios_dater;
+}
+
+// Set BIOS timer directly
+static void set_timer(unsigned x)
+{
+    struct timeval tv;
+    gettimeofday(&tv, 0);
+    start_timer = time_to_bios(tv) + x;
+    update_timer();
 }
 
 // Emulate i8253 timers
@@ -106,7 +130,7 @@ uint8_t port_timer_read(uint16_t port)
         tval = get_actual_timer(t);
 
     // Convert internal timer value to port read
-    int ret = 0;
+    uint8_t ret = 0;
     if(t->rd_mode == TIMER_LSB)
         ret = tval & 0xFF;
     else if(t->rd_mode == TIMER_MSB)
@@ -123,7 +147,7 @@ uint8_t port_timer_read(uint16_t port)
     }
 
     debug(debug_int, "timer port read $%02x = %02x (mode=%02x, r_state=%d, latch=%d)\n",
-          port, ret, t->op_mode, t->rd_mode, t->latched);
+          port, ret, (unsigned)(t->op_mode), t->rd_mode, t->latched);
 
     return ret;
 }
@@ -224,7 +248,7 @@ static uint16_t bcd(uint16_t v, int digits)
 }
 
 // BIOS TIMER
-void int1A(void)
+void intr1A(void)
 {
     debug(debug_int, "B-1A%04X: BX=%04X\n", cpuGetAX(), cpuGetBX());
     unsigned ax = cpuGetAX();
@@ -237,6 +261,14 @@ void int1A(void)
         cpuSetCX((bios_timer >> 16) & 0xFFFF);
         cpuSetAX(bios_dater);
         debug(debug_int, "GET TIME: %02x:%04x:%04x\n", cpuGetAX(), cpuGetCX(),
+              cpuGetDX());
+        break;
+    }
+    case 1: // SET SYSTEM TIME
+    {
+        unsigned t = cpuGetDX() + (cpuGetCX() << 16);
+        set_timer(t);
+        debug(debug_int, "SET TIME: %02x:%04x:%04x\n", cpuGetAX(), cpuGetCX(),
               cpuGetDX());
         break;
     }

@@ -30,7 +30,7 @@ union term_cell
 // Note that this array holds the character and color of each text cell,
 // with the byte-order given as the 8086 little-endian.
 static union term_cell term_screen[64][256];
-// Current line in output, lines bellow this are not currently displayed.
+// Current line in output, lines below this are not currently displayed.
 // This allows using only part of the terminal.
 static int output_row;
 // Current cursor row/column position in the terminal.
@@ -83,13 +83,13 @@ static void term_get_size(void)
             term_sx = 240;
         if(term_sy > 64)
             term_sy = 64;
-        debug(debug_video, "terminal size: %dx%d\n", term_sx, term_sy);
+        debug(debug_video, "terminal size: %ux%u\n", term_sx, term_sy);
     }
     else
     {
         term_sx = 80;
         term_sy = 25;
-        debug(debug_video, "can't get terminal size, assuming %dx%d\n", term_sx, term_sy);
+        debug(debug_video, "can't get terminal size, assuming %ux%u\n", term_sx, term_sy);
     }
 }
 
@@ -116,7 +116,7 @@ static void reload_posxy(int page)
     vid_posy[page] = memory[0x451 + page * 2];
 }
 
-static void reload_posxy_all()
+static void reload_posxy_all(void)
 {
     for(int i = 0; i < 8; i++)
     {
@@ -182,7 +182,7 @@ static void set_text_mode(int clear)
     memory[0x463] = 0xD4;                             // I/O port of video CRTC
     memory[0x464] = 0x03;                             // ...
     memory[0x465] = 0x29;                             // video mode select reg
-    memory[0x466] = 0x30;                             // CGA pallete select
+    memory[0x466] = 0x30;                             // CGA palette select
     memory[0x484] = vid_sy - 1;                       // screen rows - 1
     memory[0x485] = vid_font_lines;                   // character font height
     memory[0x486] = 0;                                // ...
@@ -211,7 +211,7 @@ static void exit_video(void)
     fputs("\x1b[?7h", tty_file); // Re-enable margin
     fputs("\x1b[m", tty_file);
     fclose(tty_file);
-    debug(debug_video, "exit video - row %d\n", max);
+    debug(debug_video, "exit video - row %u\n", max);
 }
 
 static void init_video(void)
@@ -219,11 +219,10 @@ static void init_video(void)
     debug(debug_video, "starting video emulation.\n");
     int tty_fd = open("/dev/tty", O_NOCTTY | O_WRONLY);
     if(tty_fd < 0)
-    {
         print_error("error at open TTY, %s\n", strerror(errno));
-        exit(1);
-    }
     tty_file = fdopen(tty_fd, "w");
+    if(!tty_file)
+        print_error("error at open TTY, %s\n", strerror(errno));
     fputs("\x1b[?7l", tty_file); // Disable automatic margin
     atexit(exit_video);
     video_initialized = 1;
@@ -250,7 +249,7 @@ static void set_color(uint8_t c)
     }
 }
 
-static void vid_set_font(int lines)
+static void vid_set_font(unsigned lines)
 {
     if(vid_font_lines == lines || lines < 4 || lines > 32)
         return; // No change
@@ -261,7 +260,7 @@ static void vid_set_font(int lines)
         rows = 64;
     else if(rows < 12)
         rows = 12;
-    debug(debug_video, "set %d lines mode from %d\n", rows, max);
+    debug(debug_video, "set %u lines mode from %u\n", rows, max);
 
     // Clear end-of-screen if we are reducing the height
     if(video_active() && max > rows)
@@ -272,7 +271,7 @@ static void vid_set_font(int lines)
         for(int y = rows; y < 64; y++)
             for(int x = 0; x < 256; x++)
                 term_screen[y][x] = get_cell(0x20, 0x07);
-        if(output_row > rows - 1)
+        if(output_row > (int)rows - 1)
             output_row = rows - 1;
     }
     // Set new mode:
@@ -303,7 +302,7 @@ void video_init_mem(void)
     // Setup non-standard mode:
     if(getenv(ENV_ROWS))
     {
-        int rows = atoi(getenv(ENV_ROWS));
+        unsigned rows = atoi(getenv(ENV_ROWS));
         if(rows > 12 && rows <= 50)
             vid_set_font(400 / rows);
         else if(rows == 12)
@@ -356,7 +355,7 @@ static void term_goto_xy(unsigned x, unsigned y)
     }
     if(term_posy > y)
     {
-        fprintf(tty_file, "\x1b[%dA", term_posy - y);
+        fprintf(tty_file, "\x1b[%uA", term_posy - y);
         term_posy = y;
     }
     if(x != term_posx)
@@ -364,7 +363,7 @@ static void term_goto_xy(unsigned x, unsigned y)
         if(term_posx != 0)
             putc('\r', tty_file);
         if(x != 0)
-            fprintf(tty_file, "\x1b[%dC", x);
+            fprintf(tty_file, "\x1b[%uC", x);
         term_posx = x;
     }
 }
@@ -396,6 +395,8 @@ static void debug_screen(void)
 
     // Dump screen
     char *buf = malloc(3 * vid_sx + 8);
+    if(!buf)
+        return;
 //    debug(debug_video, "- screen dump -\n");
     for(unsigned y = 0; y < vid_sy; y++)
     {
@@ -408,8 +409,9 @@ static void debug_screen(void)
             buf[x] = cell.chr;
         }
         buf[vid_sx] = 0;
-        debug(debug_video, "%02d: %s\n", y, buf);
+        debug(debug_video, "%02u: %s\n", y, buf);
     }
+    free(buf);
 }
 
 // Compares current screen with memory data
@@ -478,7 +480,7 @@ static void vid_scroll_up(uint8_t x0, uint8_t y0, uint8_t x1, uint8_t y1, int n,
     {
         // Update screen before
         check_screen();
-        int m = n > output_row + 1 ? output_row + 1 : n;
+        unsigned m = n > output_row + 1 ? output_row + 1 : n;
         if(term_posy < m)
             term_goto_xy(0, m);
         output_row -= m;
@@ -511,7 +513,7 @@ static void vid_scroll_up(uint8_t x0, uint8_t y0, uint8_t x1, uint8_t y1, int n,
 static void vid_scroll_dwn(uint8_t x0, uint8_t y0, uint8_t x1, uint8_t y1, unsigned n,
                            int page)
 {
-    debug(debug_video, "scroll down %d: (%d, %d) - (%d, %d)\n", n, x0, y0, x1, y1);
+    debug(debug_video, "scroll down %u: (%u, %u) - (%u, %u)\n", n, x0, y0, x1, y1);
     debug_screen();
 
     // Check parameters
@@ -521,7 +523,7 @@ static void vid_scroll_dwn(uint8_t x0, uint8_t y0, uint8_t x1, uint8_t y1, unsig
         y1 = vid_sy - 1;
     if(y0 > y1 || x0 > x1)
         return;
-    if(n > y1 - y0 + 1 || !n)
+    if(n > y1 - y0 + 1U || !n)
         n = y1 + 1 - y0;
 
     // TODO: try to scroll TERMINAL
@@ -622,13 +624,13 @@ void video_putch(char ch)
     if(!video_initialized)
         init_video();
     reload_posxy(vid_page);
-    debug(debug_video, "putchar %02x at (%d,%d)\n", ch & 0xFF, vid_posx[vid_page],
+    debug(debug_video, "putchar %02x at (%u,%u)\n", ch & 0xFFU, vid_posx[vid_page],
           vid_posy[vid_page]);
     video_putchar(ch, 0xFF00, vid_page);
 }
 
 // VIDEO int
-void int10()
+void intr10(void)
 {
     debug(debug_int, "V-10%04X: BX=%04X\n", cpuGetAX(), cpuGetBX());
     debug(debug_video, "V-10%04X: BX=%04X CX=%04X DX=%04X\n", cpuGetAX(), cpuGetBX(),
@@ -752,7 +754,7 @@ void int10()
         cpuSetBX((memory[0x462] << 8) | (0xFF & cpuGetBX()));
         break;
     case 0x10:
-        if(ax == 0x1002) // TODO: Set pallete registers - ignore
+        if(ax == 0x1002) // TODO: Set palette registers - ignore
             break;
         else if(ax == 0x1003) // TODO: Set blinking state
             break;
@@ -766,9 +768,9 @@ void int10()
         }
         else if(ax == 0x1100 || ax == 0x1110)
         {
-            int lines = cpuGetBX() >> 8;
+            unsigned lines = cpuGetBX() >> 8;
             if(lines < 6 || lines > 32)
-                debug(debug_video, "UNHANDLED FONT HEIGHT %d LINES\n", lines);
+                debug(debug_video, "UNHANDLED FONT HEIGHT %u LINES\n", lines);
             else
                 vid_set_font(lines);
         }
@@ -783,7 +785,7 @@ void int10()
         break;
     case 0x12: // ALT FUNCTION SELECT
     {
-        int bl = cpuGetBX() & 0xFF;
+        unsigned bl = cpuGetBX() & 0xFF;
         if(bl == 0x10) // GET EGA INFO
         {
             cpuSetBX(0x0003);
@@ -873,6 +875,10 @@ void int10()
             int addr = cpuGetAddrES(cpuGetDI());
             if(addr < 0xFFF00)
             {
+                int scan_code = vid_scan_lines <= 200   ? 0
+                                : vid_scan_lines <= 350 ? 1
+                                : vid_scan_lines <= 400 ? 2
+                                                        : 3;
                 // Store state information
                 memset(memory + addr, 0, 64);
                 memory[addr + 0] = 0x00; // static-func table at C000:0100
@@ -881,11 +887,15 @@ void int10()
                 memory[addr + 3] = 0xC0; // ...
                 // First 30 bytes copied from BIOS memory 40h:49h to 40h:66h
                 memcpy(memory + addr + 4, memory + 0x449, 30);
-                memcpy(memory + addr + 34, memory + 0x484, 5);
+                memory[addr + 34] = vid_sy;              // # of rows
+                memory[addr + 35] = vid_font_lines;      // # of scan lines in font
+                memory[addr + 36] = 0;                   //
+                memory[addr + 37] = 8;                   // combination code, analog VGA
+                memory[addr + 38] = 0;                   //
                 memory[addr + 39] = 0x10;                //
                 memory[addr + 40] = 0x00;                // # of colors: 0010
                 memory[addr + 41] = vid_sy > 25 ? 4 : 8; // # of pages
-                memory[addr + 42] = 2;                   // # of scan-lines - from vid_sy
+                memory[addr + 42] = scan_code;           // # of scan-lines
                 memory[addr + 49] = 3;                   // 256k memory
                 cpuSetAX(0x1B1B);
             }

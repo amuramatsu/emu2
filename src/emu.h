@@ -126,7 +126,7 @@ static inline int get8(int addr)
 }
 
 // Write 16 bit number
-static inline int get16(int addr)
+static inline unsigned get16(int addr)
 {
     return get8(addr) + (get8(addr + 1) << 8);
 }
@@ -135,6 +135,21 @@ static inline int get16(int addr)
 static inline unsigned get32(int addr)
 {
     return get16(addr) + (get16(addr + 2) << 16);
+}
+
+// Push word to stack
+static inline void cpuPushWord(uint16_t w)
+{
+    cpuSetSP(cpuGetSP() - 2);
+    put16(cpuGetSS() * 16 + cpuGetSP(), w);
+}
+
+// Pop word from stack
+static inline int cpuPopWord(void)
+{
+    int w = get16(cpuGetSS() * 16 + cpuGetSP());
+    cpuSetSP(cpuGetSP() + 2);
+    return w;
 }
 
 // Copy data to CPU memory

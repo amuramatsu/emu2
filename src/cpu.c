@@ -5,6 +5,7 @@
 #include "dbg.h"
 #include "dis.h"
 #include "emu.h"
+#include "os.h"
 
 // Forward declarations
 static void do_instruction(uint8_t code);
@@ -2262,7 +2263,7 @@ static void i_leave(void)
     wregs[BP] = PopWord();
 }
 
-static void i_halt(void)
+NORETURN static void i_halt(void)
 {
     printf("HALT instruction!\n");
     exit(0);
@@ -2270,7 +2271,7 @@ static void i_halt(void)
 
 static void debug_instruction(void)
 {
-    unsigned nip = (cpuGetIP() + 0xFFFF) & 0xFFFF; // substract 1!
+    unsigned nip = (cpuGetIP() + 0xFFFF) & 0xFFFF; // subtract 1!
     const uint8_t *ip = memory + sregs[CS] * 16 + nip;
 
     debug(debug_cpu, "AX=%04X BX=%04X CX=%04X DX=%04X SP=%04X BP=%04X SI=%04X DI=%04X ",
@@ -2425,10 +2426,10 @@ static void do_instruction(uint8_t code)
     case 0x85: OP_wr16(TEST);
     case 0x86: i_xchg_br8();                                   break;
     case 0x87: i_xchg_wr16();                                  break;
-    case 0x88: OP_br8(MOV);                                    break;
-    case 0x89: OP_wr16(MOV);                                   break;
-    case 0x8a: OP_r8b(MOV);                                    break;
-    case 0x8b: OP_r16w(MOV);                                   break;
+    case 0x88: OP_br8(MOV);
+    case 0x89: OP_wr16(MOV);
+    case 0x8a: OP_r8b(MOV);
+    case 0x8b: OP_r16w(MOV);
     case 0x8c: i_mov_wsreg();                                  break;
     case 0x8d: i_lea();                                        break;
     case 0x8e: i_mov_sregw();                                  break;
@@ -2533,7 +2534,7 @@ static void do_instruction(uint8_t code)
     case 0xf1: i_undefined();                                  break;
     case 0xf2: rep(0);                                         break;
     case 0xf3: rep(1);                                         break;
-    case 0xf4: i_halt();                                       break;
+    case 0xf4: i_halt();
     case 0xf5: CF = !CF;                                       break;
     case 0xf6: i_f6pre();                                      break;
     case 0xf7: i_f7pre();                                      break;
@@ -2574,19 +2575,19 @@ void cpuSetDS(unsigned v) { sregs[DS] = v; }
 void cpuSetIP(unsigned v) { ip = v; }
 
 // Get CPU registers from outside
-unsigned cpuGetAX() { return wregs[AX]; }
-unsigned cpuGetCX() { return wregs[CX]; }
-unsigned cpuGetDX() { return wregs[DX]; }
-unsigned cpuGetBX() { return wregs[BX]; }
-unsigned cpuGetSP() { return wregs[SP]; }
-unsigned cpuGetBP() { return wregs[BP]; }
-unsigned cpuGetSI() { return wregs[SI]; }
-unsigned cpuGetDI() { return wregs[DI]; }
-unsigned cpuGetES() { return sregs[ES]; }
-unsigned cpuGetCS() { return sregs[CS]; }
-unsigned cpuGetSS() { return sregs[SS]; }
-unsigned cpuGetDS() { return sregs[DS]; }
-unsigned cpuGetIP() { return ip; }
+unsigned cpuGetAX(void) { return wregs[AX]; }
+unsigned cpuGetCX(void) { return wregs[CX]; }
+unsigned cpuGetDX(void) { return wregs[DX]; }
+unsigned cpuGetBX(void) { return wregs[BX]; }
+unsigned cpuGetSP(void) { return wregs[SP]; }
+unsigned cpuGetBP(void) { return wregs[BP]; }
+unsigned cpuGetSI(void) { return wregs[SI]; }
+unsigned cpuGetDI(void) { return wregs[DI]; }
+unsigned cpuGetES(void) { return sregs[ES]; }
+unsigned cpuGetCS(void) { return sregs[CS]; }
+unsigned cpuGetSS(void) { return sregs[SS]; }
+unsigned cpuGetDS(void) { return sregs[DS]; }
+unsigned cpuGetIP(void) { return ip; }
 
 // Address of flags in stack when in interrupt handler
 static uint8_t *flagAddr(void)

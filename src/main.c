@@ -8,6 +8,7 @@
 #include "keyb.h"
 #include "timer.h"
 #include "video.h"
+#include "os.h"
 #ifdef EMS_SUPPORT
 #include "ems.h"
 #endif /* EMS_SUPPORT */
@@ -44,9 +45,11 @@ uint8_t read_port(unsigned port)
 void write_port(unsigned port, uint8_t value)
 {
     if(port >= 0x40 && port <= 0x43)
-        return port_timer_write(port, value);
+        port_timer_write(port, value);
     else if(port == 0x03D4 || port == 0x03D5)
-        return video_crtc_write(port, value);
+        video_crtc_write(port, value);
+    else if(port >= 0x60 && port <= 0x65)
+        keyb_write_port(port, value);
     else
         debug(debug_port, "port write %04x <- %02x\n", port, value);
 }
@@ -62,22 +65,44 @@ void emulator_update(void)
 }
 
 // BIOS - GET EQUIPMENT FLAG
-static void int11(void)
+static void intr11(void)
 {
     cpuSetAX(0x0021);
 }
 
 // BIOS - GET MEMORY
-static void int12(void)
+static void intr12(void)
 {
     cpuSetAX(640);
 }
 
 // Network access, ignored.
-static void int2a(void) {}
+static void intr2a(void) {}
+
+// Absolute disk read
+static void intr25(void)
+{
+    debug(debug_int, "D-25%04X: CX=%04X\n", cpuGetAX(), cpuGetCX());
+    // AH=80 : timeout
+    // AL=02 : drive not ready
+    cpuSetAX(0x8002);
+    cpuSetFlag(cpuFlag_CF);
+
+    // This call returns via RETF instead of IRET, we simulate this by
+    // manipulating stack directly.
+    // POP IP / CS / FLAGS
+    int ip = cpuPopWord();
+    int cs = cpuPopWord();
+    int flags = cpuPopWord();
+    // PUSH flags twice
+    cpuPushWord(flags);
+    cpuPushWord(flags);
+    cpuPushWord(cs);
+    cpuPushWord(ip);
+}
 
 // System Reset
-static void int19(void)
+NORETURN static void intr19(void)
 {
     debug(debug_int, "INT 19: System reset!\n");
     exit(0);
@@ -87,23 +112,23 @@ static void int19(void)
 void bios_routine(unsigned inum)
 {
     if(inum == 0x21)
-        int21();
+        intr21();
     else if(inum == 0x20)
-        int20();
+        intr20();
     else if(inum == 0x22)
-        int22();
+        intr22();
     else if(inum == 0x1A)
-        int1A();
+        intr1A();
     else if(inum == 0x19)
-        int19();
+        intr19();
     else if(inum == 0x16)
-        int16();
+        intr16();
     else if(inum == 0x10)
-        int10();
+        intr10();
     else if(inum == 0x11)
-        int11();
+        intr11();
     else if(inum == 0x12)
-        int12();
+        intr12();
     else if(inum == 0x06)
     {
         uint16_t ip = cpuGetStack(0);
@@ -112,17 +137,19 @@ void bios_routine(unsigned inum)
                     memory[cpuGetAddress(cs, ip)], cs, ip);
     }
     else if(inum == 0x28)
-        int28();
+        intr28();
+    else if(inum == 0x25)
+        intr25();
     else if(inum == 0x29)
-        int29();
+        intr29();
     else if(inum == 0x2A)
-        int2a();
+        intr2a();
     else if(inum == 0x2f)
-        int2f();
+        intr2f();
     else if(inum == 0x8)
         ; // Timer interrupt - nothing to do
     else if(inum == 0x9)
-        ; // Keyboard interrupt - nothing to do
+        keyb_handle_irq(); // Keyboard interrupt
 #ifdef EMS_SUPPORT
     else if(inum == 0x67)
         int67();
@@ -136,8 +163,9 @@ static int load_binary_prog(const char *name, int bin_load_addr)
     FILE *f = fopen(name, "rb");
     if(!f)
         print_error("can't open '%s': %s\n", name, strerror(errno));
-    fread(memory + bin_load_addr, 1, 0x100000 - bin_load_addr, f);
+    unsigned n = fread(memory + bin_load_addr, 1, 0x100000 - bin_load_addr, f);
     fclose(f);
+    debug(debug_int, "load binary of %02x bytes\n", n);
     return 0;
 }
 
@@ -166,7 +194,7 @@ static void timer_alarm(int x)
     exit_cpu = 1;
 }
 
-static void exit_handler(int x)
+NORETURN static void exit_handler(int x)
 {
     exit(1);
 }
@@ -231,6 +259,9 @@ int main(int argc, char **argv)
         {
         case 'h':
             print_usage();
+        case 'v':
+            print_version();
+            exit(EXIT_SUCCESS);
         case 'b':
             bin_load_addr = strtol(opt, &ep, 0);
             if(*ep || bin_load_addr < 0 || bin_load_addr > 0xFFFF0)
@@ -299,13 +330,19 @@ int main(int argc, char **argv)
     else
         init_dos(argc - 1, argv + 1);
 
-    signal(SIGALRM, timer_alarm);
+    struct sigaction timer_action, exit_action;
+    exit_action.sa_handler = exit_handler;
+    timer_action.sa_handler = timer_alarm;
+    sigemptyset(&exit_action.sa_mask);
+    sigemptyset(&timer_action.sa_mask);
+    exit_action.sa_flags = timer_action.sa_flags = 0;
+    sigaction(SIGALRM, &timer_action, NULL);
     // Install an exit handler to allow exit functions to run
-    signal(SIGHUP, exit_handler);
-    signal(SIGINT, exit_handler);
-    signal(SIGQUIT, exit_handler);
-    signal(SIGPIPE, exit_handler);
-    signal(SIGTERM, exit_handler);
+    sigaction(SIGHUP, &exit_action, NULL);
+    sigaction(SIGINT, &exit_action, NULL);
+    sigaction(SIGQUIT, &exit_action, NULL);
+    sigaction(SIGPIPE, &exit_action, NULL);
+    sigaction(SIGTERM, &exit_action, NULL);
     struct itimerval itv;
     itv.it_interval.tv_sec = 0;
     itv.it_interval.tv_usec = 54925;

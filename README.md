@@ -4,6 +4,15 @@ EMU2: A simple text-mode x86 + DOS emulator
 This is a simple DOS emulator for the Linux text console, supporting basic DOS
 system calls and console I/O.
 
+Installation
+------------
+
+    make
+    sudo make install
+
+The above installs `emu2` into `$(DESTDIR)${PREFIX}/bin/emu2`, this is
+`/usr/bin/emu2` by default.
+
 Using the emulator
 ------------------
 
@@ -95,8 +104,6 @@ First, make a new directory and unzip the file:
     $ mkdir tp302
     $ cd tp302
     $ unzip ../tp302.zip
-    $ ls
-    $ ls
     $ ls
     ACCESS3.BOX   CALC.PAS      DEMO-BCD.PAS  GRAPH.P     SUBDIR.PAS    TURBO.COM
     ART.PAS       CMDLINE.PAS   EXTERNAL.DOC  LISTER.PAS  TINST.COM     TURBO.MSG

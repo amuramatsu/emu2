@@ -9,6 +9,7 @@
 #include "timer.h"
 #include "utils.h"
 #include "video.h"
+#include "os.h"
 #include "ems.h"
 
 #include <errno.h>
@@ -32,17 +33,20 @@ static uint8_t *nls_country_info;
 static uint32_t dos_sysvars;
 static uint32_t dos_append;
 
+// Last error - used to implement "get extended error"
+static uint8_t dos_error;
+
 // Returns "APPEND" path, if activated:
-static const char *append_path()
+static const char *append_path(void)
 {
     return (memory[dos_append] & 0x01) ? ((char *)memory + dos_append + 2) : 0;
 }
 
 // Disk Transfer Area, buffer for find-first-file output.
-static int dosDTA;
+static unsigned dosDTA;
 
 // Emulated DOS version: default to DOS 3.30
-static int dosver = 0x1E03;
+static unsigned dosver = 0x1E03;
 
 // Allocates memory for static DOS tables, from "rom" memory
 static uint32_t get_static_memory(uint16_t bytes, uint16_t align)
@@ -60,10 +64,10 @@ static uint32_t get_static_memory(uint16_t bytes, uint16_t align)
 // DOS file handles
 #define max_handles (0x10000)
 static FILE *handles[max_handles];
-static int devinfo[max_handles];
+static uint16_t devinfo[max_handles];
 static unsigned handle_owners[max_handles];
 
-static int guess_devinfo(FILE *f)
+static uint16_t guess_devinfo(FILE *f)
 {
     int fn = fileno(f);
     if(isatty(fn))
@@ -106,6 +110,7 @@ static int dos_close_file(int h)
     {
         cpuSetFlag(cpuFlag_CF);
         cpuSetAX(6);
+        dos_error = 6;
         return -1;
     }
     handles[h] = 0;
@@ -118,6 +123,7 @@ static int dos_close_file(int h)
     if(f == stdin || f == stdout || f == stderr)
         return 0; // Never close standard streams
     fclose(f);
+    dos_error = 0;
     return 0;
 }
 
@@ -137,18 +143,20 @@ static void create_dir(void)
         free(fname);
         cpuSetFlag(cpuFlag_CF);
         if(errno == EACCES)
-            cpuSetAX(5);
+            dos_error = 5;
         else if(errno == ENAMETOOLONG || errno == ENOTDIR)
-            cpuSetAX(3);
+            dos_error = 3;
         else if(errno == ENOENT)
-            cpuSetAX(2);
+            dos_error = 2;
         else if(errno == EEXIST)
-            cpuSetAX(5);
+            dos_error = 5;
         else
-            cpuSetAX(1);
-        debug(debug_dos, "ERROR %d\n", cpuGetAX());
+            dos_error = 1;
+        cpuSetAX(dos_error);
+        debug(debug_dos, "ERROR %u\n", cpuGetAX());
         return;
     }
+    dos_error = 0;
     debug(debug_dos, "OK\n");
     free(fname);
     cpuClrFlag(cpuFlag_CF);
@@ -163,89 +171,102 @@ static void remove_dir(void)
         free(fname);
         cpuSetFlag(cpuFlag_CF);
         if(errno == EACCES)
-            cpuSetAX(5);
+            dos_error = 5;
         else if(errno == ENAMETOOLONG || errno == ENOTDIR)
-            cpuSetAX(3);
+            dos_error = 3;
         else if(errno == ENOENT)
-            cpuSetAX(2);
+            dos_error = 2;
         else
-            cpuSetAX(1);
-        debug(debug_dos, "ERROR %d\n", cpuGetAX());
+            dos_error = 1;
+        cpuSetAX(dos_error);
+        debug(debug_dos, "ERROR %u\n", cpuGetAX());
         return;
     }
+    dos_error = 0;
     debug(debug_dos, "OK\n");
     free(fname);
     cpuClrFlag(cpuFlag_CF);
 }
 
-static void dos_open_file(int create)
+static int dos_open_file(int create, int access_mode, int name_addr)
 {
     int h = get_new_handle();
-    int al = cpuGetAX() & 0xFF;
     if(h < 0)
     {
+        dos_error = 4;
         cpuSetAX(4);
         cpuSetFlag(cpuFlag_CF);
-        return;
+        return 0;
     }
-    int name_addr = cpuGetAddrDS(cpuGetDX());
     char *fname = dos_unix_path(name_addr, create, append_path());
     if(!memory[name_addr] || !fname)
     {
         debug(debug_dos, "\t(file not found)\n");
+        dos_error = 2;
         cpuSetAX(2);
         cpuSetFlag(cpuFlag_CF);
-        return;
+        return 0;
     }
     const char *mode;
+    int mflag = 0;
     if(create)
+    {
+        // Use exclusive access on create == 2, to fail on existing file
+        mflag = O_CREAT | O_RDWR | (create == 2 ? O_EXCL : 0);
         mode = "w+b";
+    }
     else
     {
-        switch(al & 7)
+        switch(access_mode & 7)
         {
         case 0:
+            mflag = O_RDONLY;
             mode = "rb";
             break;
-        case 1:
-            mode = "r+b";
-            break;
+        case 1: // Write only, but DOS sometimes allows reading, so we open as read/write
         case 2:
+            mflag = O_RDWR;
             mode = "r+b";
             break;
         default:
             free(fname);
+            dos_error = 1;
+            cpuSetAX(1);
             cpuSetFlag(cpuFlag_CF);
-            return;
+            return 0;
         }
     }
-    debug(debug_dos, "\topen '%s', '%s', %04x ", fname, mode, h);
-    if(create == 2)
+    debug(debug_dos, "\topen '%s', '%s', %04x ", fname, mode, (unsigned)h);
+
+    // TODO: should set file attributes in CX
+    handles[h] = 0;
+    int fd = open(fname, mflag, 0666);
+    if(fd != -1)
     {
-        // Force exclusive access. We could use mode = "x+" in glibc.
-        int fd = open(fname, O_CREAT | O_EXCL | O_RDWR, 0666);
-        if(fd != -1)
-            handles[h] = fdopen(fd, mode);
+        // Check if we opened a directory and fail
+        struct stat st;
+        if(0 != fstat(fd, &st) || S_ISDIR(st.st_mode))
+            close(fd);
         else
-            handles[h] = 0;
+            handles[h] = fdopen(fd, mode);
     }
-    else
-        handles[h] = fopen(fname, mode);
+
     if(!handles[h])
     {
         if(errno != ENOENT)
         {
             debug(debug_dos, "%s.\n", strerror(errno));
-            cpuSetAX(5);
+            dos_error = 5;
         }
         else
         {
             debug(debug_dos, "not found.\n");
-            cpuSetAX(2);
+            dos_error = 2;
         }
+        cpuSetAX(dos_error);
         cpuSetFlag(cpuFlag_CF);
         free(fname);
-        return;
+        return 0;
     }
     // Set device info:
     if(!strcmp(fname, "/dev/null"))
@@ -266,7 +287,9 @@ static void dos_open_file(int create)
     debug(debug_dos, "OK.\n");
     cpuClrFlag(cpuFlag_CF);
     cpuSetAX(h);
+    dos_error = 0;
     free(fname);
+    return create + 1;
 }
 
 static int get_ex_fcb(void)
@@ -285,7 +308,7 @@ static int get_fcb_handle(void)
     return get16(0x18 + get_fcb());
 }
 
-static void dos_show_fcb()
+static void dos_show_fcb(void)
 {
     if(!debug_active(debug_dos))
         return;
@@ -305,6 +328,7 @@ static void dos_open_file_fcb(int create)
     int h = get_new_handle();
     if(h < 0)
     {
+        dos_error = 4;
         cpuSetAL(0xFF);
         cpuSetFlag(cpuFlag_CF);
         return;
@@ -313,16 +337,18 @@ static void dos_open_file_fcb(int create)
     char *fname = dos_unix_path_fcb(fcb_addr, create, append_path());
     if(!fname)
     {
+        dos_error = 2;
         debug(debug_dos, "\t(file not found)\n");
         cpuSetAL(0xFF);
         cpuSetFlag(cpuFlag_CF);
         return;
     }
     const char *mode = create ? "w+b" : "r+b";
-    debug(debug_dos, "\topen fcb '%s', '%s', %04x ", fname, mode, h);
+    debug(debug_dos, "\topen fcb '%s', '%s', %04x ", fname, mode, (unsigned)h);
     handles[h] = fopen(fname, mode);
     if(!handles[h])
     {
+        dos_error = 4;
         debug(debug_dos, "%s.\n", strerror(errno));
         cpuSetAL(0xFF);
         cpuSetFlag(cpuFlag_CF);
@@ -342,12 +368,17 @@ static void dos_open_file_fcb(int create)
     put16(fcb_addr + 0x16, 0);   // time of last write
     put16(fcb_addr + 0x18, h);   // reserved - store DOS handle!
     memory[fcb_addr + 0x20] = 0; // current record
+    // Do not initialize random position - old DOS apps assume each FCB holds
+    // up to 33 bytes.
+#if 0
     put16(fcb_addr + 0x21, 0);   // random position - only 3 bytes
     memory[fcb_addr + 0x23] = 0;
+#endif
 
     debug(debug_dos, "OK.\n");
     cpuClrFlag(cpuFlag_CF);
     cpuSetAL(0x00);
+    dos_error = 0;
     dos_show_fcb();
     free(fname);
 }
@@ -364,11 +395,14 @@ static void dos_seq_to_rand_fcb(int fcb)
         memory[0x24 + fcb] = rand >> 24;
 }
 
-static int dos_rw_record_fcb(int addr, int write, int update, int seq)
+static int dos_rw_record_fcb(unsigned addr, int write, int update, int seq)
 {
     FILE *f = handles[get_fcb_handle()];
     if(!f)
+    {
+        dos_error = 6;
         return 1; // no data read/write
+    }
 
     int fcb = get_fcb();
     unsigned rsize = get16(0x0E + fcb);
@@ -398,6 +432,7 @@ static int dos_rw_record_fcb(int addr, int write, int update, int seq)
     if(!buf || !rsize)
     {
         debug(debug_dos, "\tbuffer pointer invalid\n");
+        dos_error = 9;
         return 2; // segment wrap in DTA
     }
     // Seek to block and read
@@ -418,6 +453,7 @@ static int dos_rw_record_fcb(int addr, int write, int update, int seq)
     if(write && (pos + n > get32(fcb + 0x10)))
         put32(fcb + 0x10, pos + n);
 
+    dos_error = 0;
     for(unsigned i = n; i < rsize; i++)
 	buf[i] = 0;
 #ifdef EMS_SUPPORT
@@ -467,7 +503,7 @@ static int get_attributes(mode_t md)
 }
 
 // DOS int 21, ah=43
-static void int21_43(void)
+static void intr21_43(void)
 {
     unsigned al = cpuGetAX() & 0xFF;
     int dname = cpuGetAddrDS(cpuGetDX());
@@ -479,7 +515,8 @@ static void int21_43(void)
         {
             debug(debug_dos, "\t(file not found)\n");
             cpuSetFlag(cpuFlag_CF);
-            cpuSetAX(2);
+            dos_error = 2;
+            cpuSetAX(dos_error);
             return;
         }
         debug(debug_dos, "\tattr '%s' = ", fname);
@@ -489,15 +526,16 @@ static void int21_43(void)
         {
             cpuSetFlag(cpuFlag_CF);
             if(errno == EACCES)
-                cpuSetAX(5);
+                dos_error = 5;
             else if(errno == ENAMETOOLONG || errno == ENOTDIR)
-                cpuSetAX(3);
+                dos_error = 3;
             else if(errno == ENOENT)
-                cpuSetAX(2);
+                dos_error = 2;
             else
-                cpuSetAX(1);
+                dos_error = 1;
+            cpuSetAX(dos_error);
             free(fname);
-            debug(debug_dos, "ERROR %d\n", cpuGetAX());
+            debug(debug_dos, "ERROR %u\n", cpuGetAX());
             return;
         }
         int current = get_attributes(st.st_mode);
@@ -513,9 +551,10 @@ static void int21_43(void)
             if(dif & 0x1C)
             {
                 cpuSetFlag(cpuFlag_CF);
-                cpuSetAX(5);
+                dos_error = 5;
+                cpuSetAX(dos_error);
                 free(fname);
-                debug(debug_dos, "ERROR %d\n", cpuGetAX());
+                debug(debug_dos, "ERROR %u\n", cpuGetAX());
                 return;
             }
         }
@@ -525,6 +564,7 @@ static void int21_43(void)
         return;
     }
     cpuSetFlag(cpuFlag_CF);
+    dos_error = 0;
     cpuSetAX(1);
     return;
 }
@@ -555,15 +595,23 @@ static struct find_first_dta *get_find_first_dta(void)
             if(!find_first_dta[i].dta_addr)
                 break;
         if(i == NUM_FIND_FIRST_DTA)
-        {
             print_error("Too many find-first DTA areas opened\n");
-            i = 0;
-        }
         find_first_dta[i].dta_addr = dosDTA;
         find_first_dta[i].find_first_list = 0;
         find_first_dta[i].find_first_ptr = 0;
     }
     return &find_first_dta[i];
+}
+
+// Frees the find_first_dta list before terminating program
+static void free_find_first_dta(void)
+{
+    for(int i = 0; i < NUM_FIND_FIRST_DTA; i++)
+        if(find_first_dta[i].find_first_list)
+        {
+            dos_free_file_list(find_first_dta[i].find_first_list);
+            find_first_dta[i].find_first_list = 0;
+        }
 }
 
 // Removes a DTA from the list
@@ -575,6 +623,7 @@ static void clear_find_first_dta(struct find_first_dta *p)
     p->dta_addr = 0;
     p->find_first_ptr = 0;
     dos_free_file_list(p->find_first_list);
+    p->find_first_list = 0;
 }
 
 // DOS int 21, ah=4f
@@ -587,7 +636,8 @@ static void dos_find_next(int first)
         debug(debug_dos, "\t(end)\n");
         clear_find_first_dta(p);
         cpuSetFlag(cpuFlag_CF);
-        cpuSetAX(first ? 0x02 : 0x12);
+        dos_error = first ? 0x02 : 0x12;
+        cpuSetAX(dos_error);
     }
     else
     {
@@ -624,6 +674,7 @@ static void dos_find_next(int first)
         p->find_first_ptr++;
         cpuClrFlag(cpuFlag_CF);
         // Some DOS programs require returning AX=0 on success.
+        dos_error = 0;
         cpuSetAX(0);
     }
 }
@@ -642,7 +693,7 @@ static void dos_find_first(void)
     p->find_first_list = dos_find_first_file(cpuGetAddrDS(cpuGetDX()), do_label, do_dirs);
 
     p->find_first_ptr = p->find_first_list;
-    return dos_find_next(1);
+    dos_find_next(1);
 }
 
 static void dos_find_next_fcb(void)
@@ -654,13 +705,15 @@ static void dos_find_next_fcb(void)
     {
         debug(debug_dos, "\t(end)\n");
         clear_find_first_dta(p);
+        dos_error = 0x12;
         cpuSetAL(0xFF);
     }
     else
     {
         debug(debug_dos, "\t'%s' ('%s')\n", d->dosname, d->unixname);
         // Fills output FCB at DTA - use extended or normal depending on input
-        int ofcb = memory[get_ex_fcb()] == 0xFF ? dosDTA + 7 : dosDTA;
+        int exfcb = memory[get_ex_fcb()] == 0xFF;
+        int ofcb = exfcb ? dosDTA + 7 : dosDTA;
         int pos = 1;
         for(uint8_t *c = d->dosname; *c; c++)
         {
@@ -698,7 +751,13 @@ static void dos_find_next_fcb(void)
             put32(ofcb + 0x17, get_time_date(time(0)));
             put32(ofcb + 0x1D, 0);
         }
+        if(exfcb)
+        {
+            memory[dosDTA] = 0xFF;
+            memory[dosDTA + 6] = memory[ofcb + 0x0C];
+        }
         p->find_first_ptr++;
+        dos_error = 0;
         cpuSetAL(0x00);
     }
 }
@@ -714,18 +773,19 @@ static void dos_find_first_fcb(void)
     int do_label = (memory[efcb] == 0xFF && memory[efcb + 6] == 0x08);
     p->find_first_list = dos_find_first_file_fcb(get_fcb(), do_label);
     p->find_first_ptr = p->find_first_list;
-    return dos_find_next_fcb();
+    dos_find_next_fcb();
 }
 
 // DOS int 21, ah=57
-static void int21_57(void)
+static void intr21_57(void)
 {
     unsigned al = cpuGetAX() & 0xFF;
     FILE *f = handles[cpuGetBX()];
     if(!f)
     {
         cpuSetFlag(cpuFlag_CF);
-        cpuSetAX(6); // invalid handle
+        dos_error = 6;
+        cpuSetAX(dos_error); // invalid handle
         return;
     }
     if(al == 0)
@@ -735,9 +795,11 @@ static void int21_57(void)
         if(0 != fstat(fileno(f), &st))
         {
             cpuSetFlag(cpuFlag_CF);
-            cpuSetAX(1);
+            dos_error = 1;
+            cpuSetAX(dos_error);
             return;
         }
+        dos_error = 0;
         cpuClrFlag(cpuFlag_CF);
         uint32_t td = get_time_date(st.st_mtime);
         cpuSetCX(td & 0xFFFF);
@@ -751,7 +813,8 @@ static void int21_57(void)
         return;
     }
     cpuSetFlag(cpuFlag_CF);
-    cpuSetAX(1);
+    dos_error = 1;
+    cpuSetAX(dos_error);
     return;
 }
 
@@ -766,6 +829,7 @@ static void dos_get_drive_info(uint8_t drive)
     cpuSetDX(0xFFFF); // total 1GB
     cpuSetBX(0x0000); // media ID byte, offset
     cpuSetDS(0x0000); // and segment
+    dos_error = 0;
     cpuClrFlag(cpuFlag_CF);
 }
 
@@ -786,21 +850,27 @@ static void dos_putchar(uint8_t ch, int fd)
     }
     else if(!handles[fd])
         putchar(ch);
+    else if(!fd && devinfo[0] == 0x80D3 && devinfo[1] == 0x80D3)
+        // DOS programs can write to STDIN and expect output to the terminal.
+        // This hack will only work if STDOUT is not redirected, in real DOS
+        // you can redirect STDOUT and write to STDIN.
+        fputc(ch, handles[1]);
     else
         fputc(ch, handles[fd]);
 }
 
-static void int21_9(void)
+static void intr21_9(void)
 {
     int i = cpuGetAddrDS(cpuGetDX());
 
     for(; memory[i] != 0x24 && i < 0x100000; i++)
         dos_putchar(memory[i], 1);
 
+    dos_error = 0;
     cpuSetAL(0x24);
 }
 
-static int return_code;
+static unsigned return_code;
 // Runs the emulator again with given parameters
 static int run_emulator(char *file, const char *prgname, char *cmdline, char *env)
 {
@@ -809,14 +879,11 @@ static int run_emulator(char *file, const char *prgname, char *cmdline, char *en
         print_error("fork error, %s\n", strerror(errno));
     else if(pid != 0)
     {
-        int ret, status;
-        while((ret = waitpid(pid, &status, 0)) == -1)
+        int status;
+        while(waitpid(pid, &status, 0) == -1)
         {
             if(errno != EINTR)
-            {
                 print_error("error waiting child, %s\n", strerror(errno));
-                break;
-            }
         }
         return_code = (WEXITSTATUS(status) & 0xFF);
         if(!WIFEXITED(status))
@@ -841,9 +908,11 @@ static int run_emulator(char *file, const char *prgname, char *cmdline, char *en
             {
                 int f1 = fileno(handles[i]);
                 int f2 = (f1 < 3) ? dup(f1) : f1;
+                if(f2 < 0)
+                    f2 = f1;
                 dup2(f2, i);
                 close(f2);
-                if(f1 >= 3)
+                if(f1 >= 3 && f1 != f2)
                     close(f1);
             }
         // Accumulate args:
@@ -874,7 +943,7 @@ static int run_emulator(char *file, const char *prgname, char *cmdline, char *en
 }
 
 // DOS exit
-void int20()
+NORETURN void intr20(void)
 {
     exit(0);
 }
@@ -894,6 +963,7 @@ static void char_input(int brk)
             inp_last_key = getch(brk);
     }
     debug(debug_dos, "\tgetch = %02x '%c'\n", inp_last_key, (char)inp_last_key);
+    dos_error = 0;
     cpuSetAL(inp_last_key);
     if((inp_last_key & 0xFF) == 0)
         inp_last_key = inp_last_key >> 8;
@@ -902,7 +972,7 @@ static void char_input(int brk)
 }
 
 // Returns true if a character to read is pending
-static int char_pending()
+static int char_pending(void)
 {
     return (inp_last_key != 0) || kbhit();
 }
@@ -911,17 +981,20 @@ static int line_input(FILE *f, uint8_t *buf, int max)
 {
     if(video_active())
     {
+        static int last_key = 0;
         int len = 0;
-        while(len < max - 1)
+        while(len < max)
         {
-            char key = getch(1);
+            int kcode = last_key ? last_key : getch(1);
+            char key = kcode & 0xFF;
+            last_key = key ? 0 : kcode >> 8;
             if(key == '\r')
             {
                 video_putch('\r');
                 video_putch('\n');
-                buf[len] = '\r';
-                buf[len + 1] = '\n';
-                len += 2;
+                buf[len++] = '\r';
+                if(len < max)
+                    buf[len++] = '\n';
                 break;
             }
             else if(key == 8)
@@ -949,6 +1022,11 @@ static int line_input(FILE *f, uint8_t *buf, int max)
         for(i = 0; i < max; i++)
         {
             int c = fgetc(f);
+            if(c == EOF && errno == EINTR)
+            {
+                --i;
+                continue;
+            }
             if(c < 0)
                 break;
             if(c == '\n' && !cr && i < max)
@@ -970,7 +1048,7 @@ static int line_input(FILE *f, uint8_t *buf, int max)
     }
 }
 
-static void int21_debug(void)
+static void intr21_debug(void)
 {
     static const char *func_names[] =
     {
@@ -1000,7 +1078,7 @@ static void int21_debug(void)
     static int count = 0;
     static struct regs
     {
-        int ax, bx, cx, dx, di, ds, es;
+        uint16_t ax, bx, cx, dx, di, ds, es;
     } last = {0, 0, 0, 0, 0, 0, 0};
     struct regs cur = {cpuGetAX(), cpuGetBX(), cpuGetCX(), cpuGetDX(),
                        cpuGetDI(), cpuGetDS(), cpuGetES()};
@@ -1027,7 +1105,7 @@ static void int21_debug(void)
 
 // DOS int 2f
 // Static set of functions used for DOS devices/extensions and TSR installation checks
-void int2f()
+void intr2f(void)
 {
     debug(debug_int, "D-2F%04X: BX=%04X\n", cpuGetAX(), cpuGetBX());
     unsigned ax = cpuGetAX();
@@ -1059,7 +1137,7 @@ void int2f()
 }
 
 // DOS int 21
-void int21()
+void intr21(void)
 {
     // Check CP/M call, INT 21h from address 0x000C0
     if(cpuGetAddress(cpuGetStack(2), cpuGetStack(0)) == 0xC2)
@@ -1076,14 +1154,14 @@ void int21()
         put16(stack + 2, cs);
         put16(stack + 4, flags);
         // Call ourselves
-        int21();
+        intr21();
         // Restore AH
         cpuSetAX((old_ax & 0xFF00) | (cpuGetAX() & 0xFF));
         return;
     }
     debug(debug_int, "D-21%04X: BX=%04X\n", cpuGetAX(), cpuGetBX());
     if(debug_active(debug_dos))
-        int21_debug();
+        intr21_debug();
 
     // Process interrupt
     unsigned ax = cpuGetAX(), ah = ax >> 8;
@@ -1126,6 +1204,9 @@ void int21()
         }
         else
         {
+            // Wake-up keyboard on character output. This is needed so that
+            // VEDIT writes faster to the screen, see issue #71
+            keyb_wakeup();
             dos_putchar(cpuGetDX() & 0xFF, 1);
             cpuSetAL(cpuGetDX());
         }
@@ -1137,11 +1218,24 @@ void int21()
         char_input(1);
         break;
     case 0x9: // WRITE STRING
-        int21_9();
+        intr21_9();
         check_screen();
         break;
     case 0xA: // BUFFERED INPUT
     {
+        unsigned addr = cpuGetAddrDS(cpuGetDX());
+        unsigned len = memory[addr];
+        if(!len)
+        {
+            debug(debug_dos, "\tbuffered input len = 0\n");
+            break;
+        }
+        if(addr + len + 2 >= 0x100000)
+        {
+            debug(debug_dos, "\tbuffer pointer invalid\n");
+            break;
+        }
+
         // If we are reading from console, suspend keyboard handling and update
         // emulator state.
         if(devinfo[0] == 0x80D3)
@@ -1151,9 +1245,8 @@ void int21()
         }
 
         FILE *f = handles[0] ? handles[0] : stdin;
-        int addr = cpuGetAddrDS(cpuGetDX());
-        unsigned len = memory[addr], i = 2;
-        while(i < len && addr + i < 0x100000)
+        unsigned i;
+        for(i = 0; i < len;)
         {
             int c;
             if(devinfo[0] == 0x80D3)
@@ -1177,14 +1270,17 @@ void int21()
             {
                 c = getc(f);
             }
+            // Retry if we were interrupted
+            if(c == EOF && errno == EINTR)
+                continue;
             if(c == '\n' || c == EOF)
                 c = '\r';
-            memory[addr + i] = (char)c;
+            memory[addr + i + 2] = (char)c;
             if(c == '\r')
                 break;
             i++;
         }
-        memory[addr + 1] = i - 2;
+        memory[addr + 1] = i;
         break;
     }
     case 0xB: // STDIN STATUS
@@ -1204,7 +1300,7 @@ void int21()
         case 0x08:
         case 0x0A:
             cpuSetAX(ax << 8);
-            int21();
+            intr21();
             return;
         }
         break;
@@ -1236,6 +1332,7 @@ void int21()
         if(!fname)
         {
             debug(debug_dos, "\t(file not found)\n");
+            dos_error = 2;
             cpuSetAL(0xFF);
             break;
         }
@@ -1245,13 +1342,11 @@ void int21()
         if(e)
         {
             debug(debug_dos, "\tcould not delete file (%d).\n", errno);
+            dos_error = 5;
             cpuSetAL(0xFF);
         }
         else
-        {
-            memory[fcb_addr + 0x1] = 0xE5; // Marker for file deleted
             cpuSetAL(0x00);
-        }
         break;
     }
     case 0x14: // SEQUENTIAL READ USING FCB
@@ -1264,6 +1359,49 @@ void int21()
         break;
     case 0x16: // CREATE FILE USING FCB
         dos_open_file_fcb(1);
+        break;
+    case 0x17: // RENAME FILE USING FCB
+        {
+            int fcb_addr = get_fcb();
+            char *fname1 = dos_unix_path_fcb(fcb_addr, 0, append_path());
+            if(!fname1)
+            {
+                debug(debug_dos, "\t(file not found)\n");
+                dos_error = 2;
+                cpuSetAL(0xFF);
+                cpuSetFlag(cpuFlag_CF);
+                break;
+            }
+            // Backup old name, and copy new name to standard location
+            uint8_t buf[11];
+            memcpy(buf, memory + fcb_addr + 1, 11);
+            memcpy(memory + fcb_addr + 1, memory + fcb_addr + 0x11, 11);
+            char *fname2 = dos_unix_path_fcb(fcb_addr, 1, append_path());
+            // Restore name
+            memcpy(memory + fcb_addr + 1, buf, 11);
+            if(!fname2)
+            {
+                free(fname1);
+                debug(debug_dos, "\t(destination invalid)\n");
+                cpuSetAL(0xFF);
+                dos_error = 3;
+                cpuSetFlag(cpuFlag_CF);
+                break;
+            }
+            int e = rename(fname1, fname2);
+            free(fname2);
+            free(fname1);
+            if(e)
+            {
+                dos_error = 5;
+                cpuSetAL(0xFF);
+                cpuSetFlag(cpuFlag_CF);
+                break;
+            }
+            dos_error = 0;
+            cpuSetAL(0);
+            cpuClrFlag(cpuFlag_CF);
+        }
         break;
     case 0x19: // GET DEFAULT DRIVE
         debug(debug_dos, "\tget default drive = '%c'\n", dos_get_default_drive() + 'A');
@@ -1293,6 +1431,10 @@ void int21()
     case 0x25: // set interrupt vector
         put16(4 * (ax & 0xFF), cpuGetDX());
         put16(4 * (ax & 0xFF) + 2, cpuGetDS());
+        // If the application installed a keyboard interrupt handler, we should
+        // enable keyboard emulation to actually generate the interrupts.
+        if(9 == (ax & 0xFF))
+            kbhit();
         break;
     case 0x26: // Create PSP (duplicate current PSP)
     {
@@ -1315,7 +1457,7 @@ void int21()
         unsigned count = cpuGetCX();
         unsigned rsize = get16(0x0E + fcb);
         unsigned e = 0;
-        int target = dosDTA;
+        unsigned target = dosDTA;
 
         while(!e && count)
         {
@@ -1508,18 +1650,22 @@ void int21()
     {
         if(dos_change_dir(cpuGetAddrDS(cpuGetDX())))
         {
-            cpuSetAX(2);
+            dos_error = 3;
+            cpuSetAX(3);
             cpuSetFlag(cpuFlag_CF);
         }
         else
+        {
+            dos_error = 0;
             cpuClrFlag(cpuFlag_CF);
+        }
         break;
     }
     case 0x3C: // CREATE FILE
-        dos_open_file(1);
+        dos_open_file(1, cpuGetAX() & 0xFF, cpuGetAddrDS(cpuGetDX()));
         break;
     case 0x3D: // OPEN EXISTING FILE
-        dos_open_file(0);
+        dos_open_file(0, cpuGetAX() & 0xFF, cpuGetAddrDS(cpuGetDX()));
         break;
     case 0x3E: // CLOSE FILE
         dos_close_file(cpuGetBX());
@@ -1530,7 +1676,8 @@ void int21()
         if(!f)
         {
             cpuSetFlag(cpuFlag_CF);
-            cpuSetAX(6); // invalid handle
+            dos_error = 6; // invalid handle
+            cpuSetAX(dos_error);
             break;
         }
 	int len = cpuGetCX();
@@ -1546,7 +1693,8 @@ void int21()
         if(!buf)
         {
             debug(debug_dos, "\tbuffer pointer invalid\n");
-            cpuSetAX(5);
+            dos_error = 5; // access denied
+            cpuSetAX(dos_error);
             cpuSetFlag(cpuFlag_CF);
             break;
         }
@@ -1561,6 +1709,7 @@ void int21()
             unsigned n = fread(buf, 1, len, f);
             cpuSetAX(n);
         }
+        dos_error = 0;
         cpuClrFlag(cpuFlag_CF);
 #ifdef EMS_SUPPORT
 	if (buf_allocated) {
@@ -1577,7 +1726,8 @@ void int21()
         if(!f)
         {
             cpuSetFlag(cpuFlag_CF);
-            cpuSetAX(6); // invalid handle
+            dos_error = 6; // invalid handle
+            cpuSetAX(dos_error);
             return;
         }
         unsigned len = cpuGetCX();
@@ -1585,13 +1735,15 @@ void int21()
         if(!len)
         {
             cpuClrFlag(cpuFlag_CF);
+            dos_error = 0;
             cpuSetAX(0);
             // flush output
             int e = fflush(f);
             if(e)
             {
                 cpuSetFlag(cpuFlag_CF);
-                cpuSetAX(5); // access denied
+                dos_error = 5; // access denied
+                cpuSetAX(dos_error);
             }
             else if(devinfo[fd] != 0x80D3)
             {
@@ -1599,7 +1751,8 @@ void int21()
                 if(pos != -1 && -1 == ftruncate(fileno(f), pos))
                 {
                     cpuSetFlag(cpuFlag_CF);
-                    cpuSetAX(5); // access denied
+                    dos_error = 5; // access denied
+                    cpuSetAX(dos_error);
                 }
             }
             break;
@@ -1619,7 +1772,8 @@ void int21()
         if(!buf)
         {
             debug(debug_dos, "\tbuffer pointer invalid\n");
-            cpuSetAX(5);
+            dos_error = 5; // access denied
+            cpuSetAX(dos_error);
             cpuSetFlag(cpuFlag_CF);
             break;
         }
@@ -1635,6 +1789,7 @@ void int21()
             unsigned n = fwrite(buf, 1, len, f);
             cpuSetAX(n);
         }
+        dos_error = 0;
         cpuClrFlag(cpuFlag_CF);
 #ifdef EMS_SUPPORT
 	if (buf_allocated)
@@ -1649,7 +1804,8 @@ void int21()
         {
             debug(debug_dos, "\t(file not found)\n");
             cpuSetFlag(cpuFlag_CF);
-            cpuSetAX(0x02);
+            dos_error = 2;
+            cpuSetAX(dos_error);
             break;
         }
         debug(debug_dos, "\tunlink '%s'\n", fname);
@@ -1657,16 +1813,20 @@ void int21()
         free(fname);
         if(e)
         {
-            cpuSetFlag(cpuFlag_CF);
             if(errno == ENOTDIR)
-                cpuSetAX(0x03);
+                dos_error = 3;
             else if(errno == ENOENT)
-                cpuSetAX(0x02);
+                dos_error = 2;
             else
-                cpuSetAX(0x05);
+                dos_error = 5;
+            cpuSetAX(dos_error);
+            cpuSetFlag(cpuFlag_CF);
         }
         else
+        {
+            dos_error = 0;
             cpuClrFlag(cpuFlag_CF);
+        }
         break;
     }
     case 0x42: // LSEEK
@@ -1682,7 +1842,8 @@ void int21()
         if(!f)
         {
             cpuSetFlag(cpuFlag_CF);
-            cpuSetAX(6); // invalid handle
+            dos_error = 6; // invalid handle
+            cpuSetAX(dos_error);
             break;
         }
         switch(ax & 0xFF)
@@ -1698,17 +1859,19 @@ void int21()
             break;
         default:
             cpuSetFlag(cpuFlag_CF);
-            cpuSetAX(1);
+            dos_error = 1;
+            cpuSetAX(dos_error);
             return;
         }
         pos = ftell(f);
         cpuSetAX(pos & 0xFFFF);
         cpuSetDX((pos >> 16) & 0xFFFF);
+        dos_error = 0;
         cpuClrFlag(cpuFlag_CF);
         break;
     }
     case 0x43: // DOS 2+ file attributes
-        int21_43();
+        intr21_43();
         break;
     case 0x44:
     {
@@ -1720,22 +1883,27 @@ void int21()
             // Show error if it is a file handle.
             debug(debug_dos, "\t(invalid file handle)\n");
             cpuSetFlag(cpuFlag_CF);
-            cpuSetAX(6); // invalid handle
+            dos_error = 6; // invalid handle
+            cpuSetAX(dos_error);
             break;
         }
         cpuClrFlag(cpuFlag_CF);
+        dos_error = 0;
         switch(al)
         {
         case 0x00: // GET DEV INFO
             debug(debug_dos, "\t= %04x\n", devinfo[h]);
             cpuSetDX(devinfo[h]);
+            // Undocumented, needed for VEDIT INSTALL
+            cpuSetAX(devinfo[h]);
             break;
         case 0x01: // SET DEV INFO
         case 0x02: // IOCTL CHAR DEV READ
         case 0x03: // IOCTL CHAR DEV WRITE
         case 0x04: // IOCTL BLOCK DEV READ
         case 0x05: // IOCTL BLOCK DEV |WRITE
-            cpuSetAX(5);
+            dos_error = 5;
+            cpuSetAX(dos_error);
             cpuSetFlag(cpuFlag_CF);
             break;
         case 0x06: // GET INPUT STATUS
@@ -1767,7 +1935,8 @@ void int21()
         case 0x0F: // SET LOGICAL DRIVE MAP
         case 0x10: // QUERY CHAR DEV CAPABILITY
         case 0x11: // QUERY BLOCK DEV CAPABILITY
-            cpuSetAX(1);
+            dos_error = 1;
+            cpuSetAX(dos_error);
             cpuSetFlag(cpuFlag_CF);
             break;
         case 0x0E: // GET LOGICAL DRIVE MAP
@@ -1782,21 +1951,24 @@ void int21()
             // Show error if it is a file handle.
             debug(debug_dos, "\t(invalid file handle)\n");
             cpuSetFlag(cpuFlag_CF);
-            cpuSetAX(6); // invalid handle
+            dos_error = 6; // invalid handle
+            cpuSetAX(dos_error);
             break;
         }
         int h = get_new_handle();
         if(h < 0)
         {
-            cpuSetAX(4);
+            dos_error = 4;
+            cpuSetAX(dos_error);
             cpuSetFlag(cpuFlag_CF);
             break;
         }
-        debug(debug_dos, "\t%04x -> %04x\n", cpuGetBX(), h);
+        debug(debug_dos, "\t%04x -> %04x\n", cpuGetBX(), (unsigned)h);
         handles[h] = handles[cpuGetBX()];
         devinfo[h] = devinfo[cpuGetBX()];
         handle_owners[h] = get_current_PSP();
         cpuSetAX(h);
+        dos_error = 0;
         cpuClrFlag(cpuFlag_CF);
         break;
     }
@@ -1806,8 +1978,9 @@ void int21()
         {
             // Show error if it is a file handle.
             debug(debug_dos, "\t(invalid file handle)\n");
+            dos_error = 6; // invalid handle
+            cpuSetAX(dos_error);
             cpuSetFlag(cpuFlag_CF);
-            cpuSetAX(6); // invalid handle
             break;
         }
         if(handles[cpuGetCX()])
@@ -1821,26 +1994,29 @@ void int21()
     {
         // Note: ignore drive letter in DL
         const uint8_t *path = dos_get_cwd(cpuGetDX() & 0xFF);
-        debug(debug_dos, "\tcwd '%c' = '%s'\n", '@' + (cpuGetDX() & 0xFF), path);
+        debug(debug_dos, "\tcwd '%c' = '%s'\n", '@' + (int)(cpuGetDX() & 0xFF), path);
         putmem(cpuGetAddrDS(cpuGetSI()), path, 64);
         cpuSetAX(0x0100);
+        dos_error = 0;
         cpuClrFlag(cpuFlag_CF);
         break;
     }
     case 0x48: // ALLOC MEMORY BLOCK
     {
-        int seg, max = 0;
+        uint16_t seg, max = 0;
         seg = mem_alloc_segment(cpuGetBX(), &max);
         if(seg)
         {
             debug(debug_dos, "\tallocated at %04x.\n", seg);
+            dos_error = 0;
             cpuSetAX(seg);
             cpuClrFlag(cpuFlag_CF);
         }
         else
         {
             debug(debug_dos, "\tnot enough memory, max=$%04x paragraphs\n", max);
-            cpuSetAX(0x8);
+            dos_error = 8;
+            cpuSetAX(dos_error);
             cpuSetBX(max);
             cpuSetFlag(cpuFlag_CF);
         }
@@ -1854,13 +2030,13 @@ void int21()
     }
     case 0x4A: // RESIZE MEMORY BLOCK
     {
-        int sz;
-        sz = mem_resize_segment(cpuGetES(), cpuGetBX());
+        uint16_t sz = mem_resize_segment(cpuGetES(), cpuGetBX());
         if(sz == cpuGetBX())
             cpuClrFlag(cpuFlag_CF);
         else
         {
-            cpuSetAX(0x8);
+            dos_error = 8;
+            cpuSetAX(dos_error);
             cpuSetBX(sz);
             cpuSetFlag(cpuFlag_CF);
             debug(debug_dos, "\tmax memory available: $%04x\n", sz);
@@ -1873,8 +2049,9 @@ void int21()
         if(!fname)
         {
             debug(debug_dos, "\texec error, file not found\n");
+            dos_error = 2;
+            cpuSetAX(dos_error);
             cpuSetFlag(cpuFlag_CF);
-            cpuSetAX(2);
             break;
         }
         // Flags:   0 = Load and Go, 1 = LOAD, 3 = Overlay
@@ -1889,11 +2066,15 @@ void int21()
             if(!f || dos_read_overlay(f, load_seg, reloc_seg))
             {
                 debug(debug_dos, "\tERROR\n");
+                dos_error = 11;
+                cpuSetAX(dos_error);
                 cpuSetFlag(cpuFlag_CF);
-                cpuSetAX(11);
             }
             else
+            {
+                dos_error = 0;
                 cpuClrFlag(cpuFlag_CF);
+            }
         }
         else if((ax & 0xFF) == 0)
         {
@@ -1925,11 +2106,15 @@ void int21()
             }
             if(run_emulator(fname, prgname, cmdline, env))
             {
-                cpuSetAX(5); // access denied
+                dos_error = 5; // access denied
+                cpuSetAX(dos_error);
                 cpuSetFlag(cpuFlag_CF);
             }
             else
+            {
+                dos_error = 0;
                 cpuClrFlag(cpuFlag_CF);
+            }
         }
         else if((ax & 0xFF) == 1)
         {
@@ -2025,8 +2210,9 @@ void int21()
         {
             debug(debug_dos, "\texec '%s': type %02xh not supported.\n", fname,
                   ax & 0xFF);
+            dos_error = 1;
+            cpuSetAX(dos_error);
             cpuSetFlag(cpuFlag_CF);
-            cpuSetAX(1);
         }
         free(fname);
         break;
@@ -2041,6 +2227,8 @@ void int21()
         else
         {
             // Exit to parent
+            // TODO: we must close all child file descriptors and deallocate
+            //       child memory.
             return_code = cpuGetAX() & 0xFF;
             // Patch INT 22h, 23h and 24h addresses to the ones saved in new PSP
             put16(0x88, get16(cpuGetAddress(get_current_PSP(), 10)));
@@ -2113,10 +2301,21 @@ void int21()
         if(!fname1)
         {
             debug(debug_dos, "\t(file not found)\n");
-            cpuSetAX(0x02);
+            dos_error = 2;
+            cpuSetAX(dos_error);
             cpuSetFlag(cpuFlag_CF);
+            break;
         }
         char *fname2 = dos_unix_path(cpuGetAddrES(cpuGetDI()), 1, 0);
+        if(!fname2)
+        {
+            free(fname1);
+            debug(debug_dos, "\t(destination not found)\n");
+            dos_error = 3;
+            cpuSetAX(dos_error);
+            cpuSetFlag(cpuFlag_CF);
+            break;
+        }
         debug(debug_dos, "\t'%s' -> '%s'\n", fname1, fname2);
         int e = rename(fname1, fname2);
         free(fname2);
@@ -2125,18 +2324,22 @@ void int21()
         {
             cpuSetFlag(cpuFlag_CF);
             if(errno == ENOTDIR)
-                cpuSetAX(0x03);
+                dos_error = 3;
             else if(errno == ENOENT)
-                cpuSetAX(0x02);
+                dos_error = 2;
             else
-                cpuSetAX(0x05);
+                dos_error = 5;
+            cpuSetAX(dos_error);
         }
         else
+        {
+            dos_error = 0;
             cpuClrFlag(cpuFlag_CF);
+        }
         break;
     }
     case 0x57: // DATE/TIME
-        int21_57();
+        intr21_57();
         break;
     case 0x58: // MEMORY ALLOCATION STRATEGY
     {
@@ -2148,18 +2351,48 @@ void int21()
         else if(3 == al)
         {
             cpuSetFlag(cpuFlag_CF);
-            cpuSetAX(1);
+            dos_error = 1;
+            cpuSetAX(dos_error);
         }
         break;
     }
     case 0x59: // GET EXTENDED ERROR
-        cpuSetAX(ax & 0xFF);
+        cpuSetAX(dos_error);
         break;
     case 0x5B: // CREATE NEW FILE
-        dos_open_file(2);
+        dos_open_file(2, cpuGetAX() & 0xFF, cpuGetAddrDS(cpuGetDX()));
         break;
+    case 0x60: // TRUENAME - CANONICALIZE FILENAME OR PATH
+    {
+        uint8_t *path_ptr = getptr(cpuGetAddrDS(cpuGetSI()), 64);
+        uint8_t *out_ptr = getptr(cpuGetAddrES(cpuGetDI()), 128);
+
+        if(!path_ptr || !out_ptr)
+        {
+            dos_error = 3;
+            cpuSetFlag(cpuFlag_CF);
+            break;
+        }
+
+        // Copy input path to output
+        memcpy(out_ptr + 3, path_ptr, 64);
+        out_ptr[64 + 3] = 0;
+        int drive = dos_path_normalize((char *)(out_ptr + 3), 127 - 3);
+        out_ptr[2] = '\\';
+        out_ptr[1] = ':';
+        out_ptr[0] = 'A' + drive;
+        cpuClrFlag(cpuFlag_CF);
+        cpuSetAX(0x5C);
+        break;
+    }
     case 0x62: // GET PSP SEGMENT
         cpuSetBX(get_current_PSP());
+        break;
+    case 0x63: // GET DOUBLE BYTE CHARACTER SET LEAD-BYTE TABLE
+        cpuSetSI(nls_dbc_set_table & 0xF);
+        cpuSetDS(nls_dbc_set_table >> 4);
+        cpuSetAX(cpuGetAX() & 0xFF00);
+        cpuClrFlag(cpuFlag_CF);
         break;
     case 0x65: // GET NLS DATA
     {
@@ -2206,11 +2439,13 @@ void int21()
             cpuSetCX(5);
             break;
         default:
-            cpuSetAX(1);
+            dos_error = 1;
+            cpuSetAX(dos_error);
             cpuSetFlag(cpuFlag_CF);
             break;
         }
         break;
+    }
     case 0x66: // GET GLOBAL CODE PAGE
         cpuSetBX(437);
         cpuSetDX(437);
@@ -2219,17 +2454,48 @@ void int21()
     case 0x67: // SET HANDLE COUNT
         cpuClrFlag(cpuFlag_CF);
         break;
+    case 0x6C: // EXTENDED OPEN/CREATE FILE
+    {
+        unsigned cmod = cpuGetDX() & 0xFF;
+        //  cmod    action
+        //   00     fail always                                         -
+        //   01     open if exists already, fail if not                 0
+        //   02     clear and open if exists, fail if not               -
+        //   10     create if not exists, fail if not.                  2
+        //   11     create if not exists, open if exists                -
+        //   12     create if not exists, clear and open if exists.     1
+        int create = -1;
+        if(cmod == 0x01)
+            create = 0;
+        else if(cmod == 0x10)
+            create = 2;
+        else if(cmod == 0x12)
+            create = 1;
+        else
+        {
+            // TODO: unsupported open moe
+            debug(debug_dos,"\tUnsupported open mode: %02x\n", cmod);
+            dos_error = 1;
+            cpuSetAX(dos_error);
+            cpuSetFlag(cpuFlag_CF);
+            break;
+        }
+        int e = dos_open_file(create, cpuGetBX() & 0xFF, cpuGetAddrDS(cpuGetSI()));
+        if(e)
+            cpuSetCX(e);
+        break;
     }
     default:
         debug(debug_dos, "UNHANDLED INT 21, AX=%04x\n", cpuGetAX());
         debug(debug_int, "UNHANDLED INT 21, AX=%04x\n", cpuGetAX());
+        dos_error = 1;
         cpuSetFlag(cpuFlag_CF);
         cpuSetAX(ax & 0xFF00);
     }
 }
 
 // DOS int 22 - TERMINATE ADDRESS
-void int22()
+NORETURN void intr22(void)
 {
     debug(debug_dos, "D-22: TERMINATE HANDLER CALLED\n");
     // If we reached here, we must terminate now
@@ -2372,6 +2638,9 @@ void init_dos(int argc, char **argv)
     init_nls_data();
     init_append();
 
+    // frees the find-first-list on exit
+    atexit(free_find_first_dta);
+
     // Init DOS version
     if(getenv(ENV_DOSVER))
     {
@@ -2429,6 +2698,14 @@ void init_dos(int argc, char **argv)
     // Init SYSVARS
     dos_sysvars = get_static_memory(128, 0);
     put16(dos_sysvars + 22, 0x0080); // First MCB
+    // NUL driver
+    static const uint8_t null_device[] = {
+        0xff, 0xff, 0x00, 0x00,
+        0x04, 0x80,
+        0x00, 0x00, 0x00, 0x00,
+        'N', 'U', 'L', ' ', ' ', ' ', ' ', ' '
+    };
+    putmem(dos_sysvars + 24 + 0x22, null_device, sizeof(null_device));
 
     // Setup default drive
     if(getenv(ENV_DEF_DRIVE))
@@ -2494,15 +2771,19 @@ void init_dos(int argc, char **argv)
     }
 
     const char *progname = getenv(ENV_PROGNAME);
+    char *buf = 0;
     if(!progname)
     {
-        progname = dos_real_path(argv[0]);
-        if(!progname)
+        buf = dos_real_path(argv[0]);
+        if(!buf)
             progname = argv[0];
+        else
+            progname = buf;
     }
 
     // Create main PSP
     int psp_mcb = create_PSP(args, environ, p - environ + 1, progname);
+    free(buf);
 
     // Load program
     const char *name = argv[0];
@@ -2522,14 +2803,14 @@ void init_dos(int argc, char **argv)
     cpuClrStartupFlag(cpuFlag_TF);
 }
 
-void int28(void)
+void intr28(void)
 {
     usleep(1); // TODO: process messages?
 }
 
-void int29(void)
+void intr29(void)
 {
-    int ax = cpuGetAX();
+    uint16_t ax = cpuGetAX();
     // Fast video output
     debug(debug_int, "D-29: AX=%04X\n", ax);
     debug(debug_dos, "D-29:   fast console out  AX=%04X\n", ax);

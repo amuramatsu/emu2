@@ -135,7 +135,7 @@ static int dos_glob(const uint8_t *n, const char *g)
         // An '*' consumes any letter, except the dot
         if(cg == '*')
         {
-            // Spacial case "." and ".."
+            // Special case "." and ".."
             if(cn == '.' && (n[1] != '.' && n[1] != 0))
                 g++;
             else
@@ -187,6 +187,12 @@ static struct dos_file_list *dos_read_dir(const char *path, const char *glob, in
 
     // Always allocate two extra items: the drive label and the terminating element
     ret = calloc(n + 2, sizeof(struct dos_file_list));
+    if(!ret)
+    {
+        for(int i = 0; i < n; free(dir[i]), i++);
+        free(dir);
+        return 0;
+    }
     struct dos_file_list *dirp = ret;
 
     // Adds label
@@ -200,10 +206,13 @@ static struct dos_file_list *dos_read_dir(const char *path, const char *glob, in
     int i;
     for(i = 0; i < n; free(dir[i]), i++)
     {
-        char *fpath;
-        if(-1 == asprintf(&fpath, "%s/%s", path, dir[i]->d_name))
+        char *fpath = malloc(strlen(path) + strlen(dir[i]->d_name) + 2);
+        if(!fpath || -1 == sprintf(fpath, "%s/%s", path, dir[i]->d_name))
+        {
+            free(fpath);
             continue;
-        // Spacial case "." and "..", only on "full directory" mode
+        }
+        // Special case "." and "..", only on "full directory" mode
         if(!strcmp(dir[i]->d_name, ".") || !strcmp(dir[i]->d_name, ".."))
         {
             if(dirs != 2)
@@ -323,11 +332,16 @@ static void str_lcase(char *str)
 static char *dos_unix_name(const char *path, const char *dosN, int force)
 {
     // First, try the name as given:
-    char *ret;
     struct stat st;
     const char *bpath = strcmp(path, "/") ? path : "";
-    if(-1 == asprintf(&ret, "%s/%s", bpath, dosN))
+    // Allocate a buffer big enough
+    char *ret = malloc(strlen(bpath) + strlen(dosN) + 2);
+    if(!ret)
         return 0;
+    if(-1 == sprintf(ret, "%s/%s", bpath, dosN)) {
+        free(ret);
+        return 0;
+    }
     if(0 == stat(ret, &st))
         return ret;
     // See if 'dosN' has glob patterns, and exists in that case,
@@ -425,7 +439,7 @@ static int char_valid(unsigned char c)
         return 1;
 }
 
-// Checks if char is a valid path separato
+// Checks if char is a valid path separator
 static int char_pathsep(unsigned char c)
 {
     if(c == '/' || c == '\\')
@@ -436,12 +450,12 @@ static int char_pathsep(unsigned char c)
 
 // Normalizes DOS path, removing relative items and adding base
 // Modifies the passed string and returns the drive as integer.
-static int dos_path_normalize(char *path)
+int dos_path_normalize(char *path, unsigned max)
 {
     int drive = dos_default_drive;
 
     // Force nul terminated
-    path[63] = 0;
+    path[max] = 0;
 
     if(path[0] && path[1] == ':')
     {
@@ -452,20 +466,20 @@ static int dos_path_normalize(char *path)
             drive = drive - 'a';
         else
             drive = dos_default_drive;
-        memmove(path, path + 2, 62);
-        path[62] = path[63] = 0;
+        memmove(path, path + 2, max - 1);
+        path[max - 1] = path[max] = 0;
     }
 
     // Copy CWD to base
-    char base[64];
-    memcpy(base, dos_cwd[drive], 64);
+    char base[max + 1];
+    memcpy(base, dos_cwd[drive], max + 1);
     // Test for absolute path
     if(path[0] == '\\' || path[0] == '/')
-        memset(base, 0, 64);
+        memset(base, 0, max + 1);
 
     // Process each component of path
     int beg, end = 0;
-    while(end < 63 && path[end])
+    while(end < max && path[end])
     {
         beg = end;
         while(char_valid(path[end]))
@@ -473,7 +487,7 @@ static int dos_path_normalize(char *path)
 
         if(path[end] && !char_pathsep(path[end]))
             path[end] = 0;
-        if(!path[end] && end < 63)
+        if(!path[end] && end < max)
             path[end + 1] = 0;
 
         // Test path
@@ -492,14 +506,14 @@ static int dos_path_normalize(char *path)
         {
             // Standard path, add to base
             int e = strlen(base);
-            if(e < 63)
+            if(e < max)
             {
                 if(e)
                 {
                     base[e] = '\\';
                     e++;
                 }
-                while(e < 62 && path[beg])
+                while(e < max - 1 && path[beg])
                 {
                     base[e] = path[beg];
                     e++;
@@ -511,7 +525,7 @@ static int dos_path_normalize(char *path)
         end++;
     }
     // Copy result
-    memcpy(path, base, 64);
+    memcpy(path, base, max + 1);
     return drive;
 }
 
@@ -536,7 +550,7 @@ const uint8_t *dos_get_cwd(int drive)
 int dos_change_cwd(char *path)
 {
     debug(debug_dos, "\tchdir '%s'\n", path);
-    int drive = dos_path_normalize(path);
+    int drive = dos_path_normalize(path, 63);
     // Check if path exists
     char *fname = dos_unix_path_rec(get_base_path(drive), path, 0);
     if(!fname)
@@ -560,7 +574,7 @@ int dos_change_dir(int addr)
 static char *dos_unix_path_base(char *path, int force)
 {
     // Normalize
-    int drive = dos_path_normalize(path);
+    int drive = dos_path_normalize(path, 63);
     // Get UNIX base path:
     const char *base = get_base_path(drive);
     // Adds CWD if path is not absolute
@@ -662,7 +676,6 @@ char *dos_unix_path_fcb(int addr, int force, const char *append)
     // Build complete path, copy current directory and add FCB file name
     char path[64];
     memcpy(path, dos_cwd[drive], 64);
-    opos = strlen(path);
 
     if(snprintf(path, 64, "%s\\%s", dos_cwd[drive], filename) >= 64)
         return 0; // Path too long
@@ -769,6 +782,12 @@ char *dos_real_path(const char *unix_path)
     // Convert remaining components
     size_t l = strlen(base), k = strlen(path);
     char *ret = calloc(1, 65);
+    if(!ret)
+    {
+        free(base);
+        free(path);
+        return 0;
+    }
     ret[0] = drive + 'A';
     ret[1] = ':';
 
@@ -793,6 +812,7 @@ char *dos_real_path(const char *unix_path)
                     path + l, path);
             free(base);
             free(path);
+            free(ret);
             return 0;
         }
         strncat(ret, "\\", 64);
