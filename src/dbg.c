@@ -46,9 +46,10 @@ NORETURN void print_usage(void)
            "  %-18s  Specifies a DOS append paths, separated by ';'.\n"
            "  %-18s  Set version of DOS to emulate, e.g. '2.11', '3.20', etc.\n"
            "  %-18s  Setup text mode with given number of rows, from 12 to 50.\n"
-           "  %-18s  Use LIM-EMS 4.0. Set this variable as available pages.\n",
+           "  %-18s  Use LIM-EMS 4.0. Set this variable as available pages.\n"
+           "  %-18s  Filename mode (7bit, 8bit or DBCS).\n",
            prog_name, ENV_DBG_NAME, ENV_DBG_OPT, ENV_PROGNAME, ENV_DEF_DRIVE, ENV_CWD,
-           ENV_DRIVE "n", ENV_CODEPAGE, ENV_LOWMEM, ENV_APPEND, ENV_DOSVER, ENV_ROWS, ENV_EMSMEM);
+           ENV_DRIVE "n", ENV_CODEPAGE, ENV_LOWMEM, ENV_APPEND, ENV_DOSVER, ENV_ROWS, ENV_EMSMEM, ENV_FILENAME);
     exit(EXIT_SUCCESS);
 }
 

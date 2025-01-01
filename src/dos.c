@@ -2675,6 +2675,16 @@ void init_dos(int argc, char **argv)
     // frees the find-first-list on exit
     atexit(free_find_first_dta);
 
+    // Set filename mode
+    if(getenv(ENV_FILENAME))
+    {
+        const char *mode = getenv(ENV_FILENAME);
+        if(strcasecmp(mode, "8bit") == 0)
+            dosname_mode(DOSNAME_8BIT);
+        else if(strcasecmp(mode, "dbcs") == 0)
+            dosname_mode(DOSNAME_DBCS);
+    }
+
     // Init DOS version
     if(getenv(ENV_DOSVER))
     {

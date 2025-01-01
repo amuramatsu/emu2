@@ -13,3 +13,4 @@
 #define ENV_ROWS      "EMU2_ROWS"
 #define ENV_DOSVER    "EMU2_DOSVER"
 #define ENV_EMSMEM    "EMU2_EMSMEM"
+#define ENV_FILENAME  "EMU2_FILENAME"
