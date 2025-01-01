@@ -14,6 +14,8 @@
 #include <termios.h>
 #include <unistd.h>
 
+#define TOPVIEW_BUFFER_ADDR 0xC0000
+
 // Color cell: une byte for the value and one for the color
 union term_cell
 {
@@ -49,6 +51,8 @@ static FILE *tty_file;
 static int video_initialized;
 // Actual cursor position in the CRTC register
 static uint16_t crtc_cursor_loc;
+// Using Top-view I/F
+static int using_top_view;
 
 // Forward
 static void term_goto_xy(unsigned x, unsigned y);
@@ -545,6 +549,17 @@ static void vid_scroll_up(uint8_t x0, uint8_t y0, uint8_t x1, uint8_t y1, int n,
     for(unsigned y = y1 - (n - 1); y <= y1; y++)
         for(unsigned x = x0; x <= x1; x++)
             vm[x + y * vid_sx] = get_cell(0x20, vid_color).value;
+    if(using_top_view)
+    {
+        uint16_t *vm = (uint16_t *)(memory + TOPVIEW_BUFFER_ADDR);
+        for(unsigned y = y0; y + n <= y1; y++)
+            for(unsigned x = x0; x <= x1; x++)
+                vm[x + y * vid_sx] = vm[x + y * vid_sx + n * vid_sx];
+        // Set last rows
+        for(unsigned y = y1 - (n - 1); y <= y1; y++)
+            for(unsigned x = x0; x <= x1; x++)
+                vm[x + y * vid_sx] = get_cell(0x20, vid_color).value;
+    }
 
     debug(debug_video, "after scroll\n");
     debug_screen();
@@ -578,7 +593,18 @@ static void vid_scroll_dwn(uint8_t x0, uint8_t y0, uint8_t x1, uint8_t y1, unsig
     for(unsigned y = y0; y < y0 + n; y++)
         for(unsigned x = x0; x <= x1; x++)
             vm[x + y * vid_sx] = get_cell(0x20, vid_color).value;
-
+    if(using_top_view)
+    {
+        uint16_t *vm = (uint16_t *)(memory + TOPVIEW_BUFFER_ADDR);
+        for(unsigned y = y1; y >= y0 + n; y--)
+            for(unsigned x = x0; x <= x1; x++)
+                vm[x + y * vid_sx] = vm[x + y * vid_sx - n * vid_sx];
+        // Set first rows
+        for(unsigned y = y0; y < y0 + n; y++)
+            for(unsigned x = x0; x <= x1; x++)
+                vm[x + y * vid_sx] = get_cell(0x20, vid_color).value;
+    }
+    
     debug(debug_video, "after scroll\n");
     debug_screen();
 }
@@ -590,6 +616,12 @@ static uint16_t *addr_xy(unsigned x, unsigned y, int page)
     return &vm[x + y * vid_sx];
 }
 
+static uint16_t *addr_xy_topview(unsigned x, unsigned y)
+{
+    uint16_t *vm = (uint16_t *)(memory + TOPVIEW_BUFFER_ADDR);
+    return &vm[x + y * vid_sx];
+}
+
 static void set_xy_char(unsigned x, unsigned y, uint8_t chr, int page)
 {
     uint16_t *p = addr_xy(x, y, page);
@@ -597,6 +629,11 @@ static void set_xy_char(unsigned x, unsigned y, uint8_t chr, int page)
     cell.value = *p;
     cell.chr = chr;
     *p = cell.value;
+    if(using_top_view)
+    {
+        p = addr_xy_topview(x, y);
+        *p = cell.value;
+    }
 }
 
 static void set_xy_full(unsigned x, unsigned y, uint8_t chr, uint8_t color, int page)
@@ -943,6 +980,15 @@ void intr10(void)
         break;
     case 0xEF: // TEST MSHERC.COM DISPLAY TYPE
         // Ignored
+        break;
+    case 0xFE: // Top-view I/F: get Video Buffer address
+        using_top_view = 1;
+        cpuSetES((TOPVIEW_BUFFER_ADDR >> 4) & 0xffff);
+        cpuSetSI(TOPVIEW_BUFFER_ADDR & 0x000f);
+        break;
+    case 0xFF: // Top-view I/F: update video buffer
+        memcpy(memory + 0xB8000, memory + TOPVIEW_BUFFER_ADDR,
+               term_sx*term_sy*sizeof(term_screen[0][0]));
         break;
     default:
         debug(debug_video, "UNHANDLED INT 10, AX=%04x\n", ax);
