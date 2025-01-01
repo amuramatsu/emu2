@@ -12,7 +12,7 @@ void set_codepage(const char *cp_name);
 void init_codepage(void);
 
 /* check DBCS 1st byte */
-int check_dbcs(uint8_t cp);
+int check_dbcs_1st(uint8_t cp);
 
 /* Transforms a DOS char to Unicode */
 int get_unicode(uint8_t cp, int *dbcs);
