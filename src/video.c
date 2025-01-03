@@ -14,7 +14,7 @@
 #include <termios.h>
 #include <unistd.h>
 
-#define TOPVIEW_BUFFER_ADDR 0xC0000
+#define TOPVIEW_BUFFER_ADDR 0xB0000
 
 // Color cell: une byte for the value and one for the color
 union term_cell
@@ -465,7 +465,6 @@ void check_screen(void)
                 {
                     term_screen[y][x] = cell;
                     put_vc_xy(' ', cell.color, x, y);
-                    continue;
                 }
                 else
                 {
@@ -477,12 +476,11 @@ void check_screen(void)
                         term_screen[y][x] = cell;
                         term_screen[y][x+1] = cell2;
                         put_vc_xy_dbcs(cell.chr, cell2.chr, cell.color, x, y);
-                        x++;
-                        continue;
                     }
+                    x++;
                 }
             }
-            if(cell.value != term_screen[y][x].value)
+            else if(cell.value != term_screen[y][x].value)
             {
                 // Output character
                 term_screen[y][x] = cell;
@@ -643,7 +641,27 @@ static void set_xy_full(unsigned x, unsigned y, uint8_t chr, uint8_t color, int 
         *addr_xy_topview(x, y) = get_cell(chr, color).value;
 }
 
-static void fix_dbcs2nd_xy_char(unsigned x, unsigned y, int page)
+static void fix_dbcs2nd_xy_pre(unsigned x, unsigned y, int page)
+{
+    int in_dbcs = 0;
+    if (x == 0)
+        return;
+    for (int xi = 0; xi < x; xi++) {
+        if(in_dbcs)
+            in_dbcs = 0;
+        else {
+            uint16_t *p = addr_xy(xi, y, page);
+            union term_cell cell;
+            cell.value = *p;
+            if(check_dbcs_1st(cell.chr))
+                in_dbcs = 1;
+        }
+    }
+    if(in_dbcs)
+        set_xy_char(x-1, y, 0x20, page);
+}
+
+static void fix_dbcs2nd_xy_post(unsigned x, unsigned y, int page)
 {
     int in_dbcs = 0;
     if (x == 0)
@@ -660,13 +678,21 @@ static void fix_dbcs2nd_xy_char(unsigned x, unsigned y, int page)
         }
     }
     if(in_dbcs)
-        set_xy_char(x-1, y, 0x20, page);
+        set_xy_char(x, y, 0x20, page);
 }
 
 static uint16_t get_xy(unsigned x, unsigned y, int page)
 {
     uint16_t mem = (page & 7) * (vid_sy > 25 ? 0x2000 : 0x1000);
     uint16_t *vm = (uint16_t *)(memory + 0xB8000 + mem);
+    union term_cell c;
+    c.value = vm[x + y * vid_sx];
+    return c.chr | (c.color << 8);
+}
+
+static uint16_t get_xy_topview(unsigned x, unsigned y)
+{
+    uint16_t *vm = (uint16_t *)(memory + TOPVIEW_BUFFER_ADDR);
     union term_cell c;
     c.value = vm[x + y * vid_sx];
     return c.chr | (c.color << 8);
@@ -699,12 +725,13 @@ static void video_putchar(uint8_t ch, uint16_t at, int page)
     }
     else
     {
-        fix_dbcs2nd_xy_char(vid_posx[page], vid_posy[page], page);
+        fix_dbcs2nd_xy_pre(vid_posx[page], vid_posy[page], page);
         if(at & 0xFF00)
             set_xy_char(vid_posx[page], vid_posy[page], ch, page);
         else
             set_xy_full(vid_posx[page], vid_posy[page], ch, at, page);
         vid_posx[page]++;
+        fix_dbcs2nd_xy_post(vid_posx[page], vid_posy[page], page);
         if(vid_posx[page] >= vid_sx)
         {
             vid_posx[page] = 0;
@@ -812,7 +839,10 @@ void intr10(void)
     {
         int page = (cpuGetBX() >> 8) & 7;
         reload_posxy(page);
-        cpuSetAX(get_xy(vid_posx[page], vid_posy[page], page));
+        if(using_top_view)
+            cpuSetAX(get_xy_topview(vid_posx[page], vid_posy[page]));
+        else
+            cpuSetAX(get_xy(vid_posx[page], vid_posy[page], page));
         break;
     }
     case 0x09: // WRITE CHAR AT CURSOR
@@ -825,7 +855,7 @@ void intr10(void)
         uint16_t py = vid_posy[page];
         uint16_t ch = ax & 0xFF;
         uint16_t at = cpuGetBX();
-        fix_dbcs2nd_xy_char(px, py, page);
+        fix_dbcs2nd_xy_pre(px, py, page);
         for(int i = cpuGetCX(); i > 0; i--)
         {
             if(full)
@@ -841,6 +871,7 @@ void intr10(void)
                     py = 0;
             }
         }
+        fix_dbcs2nd_xy_post(px, py, page);
         break;
     }
     case 0x0E: // TELETYPE OUTPUT
@@ -1015,11 +1046,17 @@ void intr10(void)
     case 0xFE: // Top-view I/F: get Video Buffer address
         using_top_view = 1;
         cpuSetES((TOPVIEW_BUFFER_ADDR >> 4) & 0xffff);
-        cpuSetSI(TOPVIEW_BUFFER_ADDR & 0x000f);
+        cpuSetDI(TOPVIEW_BUFFER_ADDR & 0x000f);
         break;
     case 0xFF: // Top-view I/F: update video buffer
-        memcpy(memory + 0xB8000, memory + TOPVIEW_BUFFER_ADDR,
-               term_sx*term_sy*sizeof(term_screen[0][0]));
+        {
+            unsigned int addr = (((unsigned)cpuGetES()) << 4) + cpuGetDI();
+            int start = addr - TOPVIEW_BUFFER_ADDR;
+            debug(debug_video, "  start=%d, len=%d\n", start, cpuGetCX());
+            memcpy(memory + 0xB8000 + start,
+                   memory + TOPVIEW_BUFFER_ADDR + start,
+                   cpuGetCX()*sizeof(term_screen[0][0]));
+        }
         break;
     default:
         debug(debug_video, "UNHANDLED INT 10, AX=%04x\n", ax);

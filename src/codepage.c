@@ -433,7 +433,7 @@ int get_unicode(uint8_t cp, int *dbcs)
 {
     if (dbcs_prev_char) {
         uint8_t inbuf[2];
-        uint8_t outbuf[10];
+        uint8_t outbuf[2];
         char *src, *dst;
         size_t srclen, dstlen;
         int s;
@@ -451,6 +451,8 @@ int get_unicode(uint8_t cp, int *dbcs)
             return 0;
         if (dbcs)
             *dbcs = 1;
+        if (sizeof(outbuf) - dstlen == 1)
+            return outbuf[0];
         return (outbuf[0] << 8) | outbuf[1];
     }
     else if (check_dbcs_1st(cp)) {
