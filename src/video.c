@@ -639,6 +639,28 @@ static void set_xy_char(unsigned x, unsigned y, uint8_t chr, int page)
 static void set_xy_full(unsigned x, unsigned y, uint8_t chr, uint8_t color, int page)
 {
     *addr_xy(x, y, page) = get_cell(chr, color).value;
+    if(using_top_view)
+        *addr_xy_topview(x, y) = get_cell(chr, color).value;
+}
+
+static void fix_dbcs2nd_xy_char(unsigned x, unsigned y, int page)
+{
+    int in_dbcs = 0;
+    if (x == 0)
+        return;
+    for (int xi = 0; xi < x; xi++) {
+        if(in_dbcs)
+            in_dbcs = 0;
+        else {
+            uint16_t *p = addr_xy(x, y, page);
+            union term_cell cell;
+            cell.value = *p;
+            if(check_dbcs_1st(cell.chr))
+                in_dbcs = 1;
+        }
+    }
+    if(in_dbcs)
+        set_xy_char(x-1, y, 0x20, page);
 }
 
 static uint16_t get_xy(unsigned x, unsigned y, int page)
@@ -677,6 +699,7 @@ static void video_putchar(uint8_t ch, uint16_t at, int page)
     }
     else
     {
+        fix_dbcs2nd_xy_char(vid_posx[page], vid_posy[page], page);
         if(at & 0xFF00)
             set_xy_char(vid_posx[page], vid_posy[page], ch, page);
         else
@@ -802,6 +825,7 @@ void intr10(void)
         uint16_t py = vid_posy[page];
         uint16_t ch = ax & 0xFF;
         uint16_t at = cpuGetBX();
+        fix_dbcs2nd_xy_char(px, py, page);
         for(int i = cpuGetCX(); i > 0; i--)
         {
             if(full)
@@ -977,6 +1001,13 @@ void intr10(void)
                 cpuSetAX(0x1B1B);
             }
         }
+        break;
+    case 0x1D: // Set Keyboard shift statusline
+        if(ax == 0x1d02) {
+            cpuSetBX(0x0000);
+            break;
+        }
+        debug(debug_video, "UNHANDLED INT 10, AX=%04x\n", ax);
         break;
     case 0xEF: // TEST MSHERC.COM DISPLAY TYPE
         // Ignored
