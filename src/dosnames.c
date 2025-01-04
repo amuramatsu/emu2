@@ -73,33 +73,20 @@ static int unix_to_dos(uint8_t *d, const char *u)
                     /*NOP*/;
             }
             else {
-                uint16_t unicode;
-                int c1, c2, n;
-                if (c < 0xE0) {
-                    if(!u[1]) {
-                        *dst++ = '~';
-                        break;
+                uint16_t unicode = utf8_to_unicode((const uint8_t **)&u);
+                if(unicode) {
+                    int n, c1, c2;
+                    n = get_dos_char(unicode, &c1, &c2);
+                    if (n == 1)
+                        *dst++ = c1;
+                    else if (n == 2) {
+                        *dst++ = c1;
+                        *dst++ = c2;
                     }
-                    unicode = (((uint16_t)u[0] & 0x1F) << 6) |
-                              (           u[1] & 0x3F);
-                    u += 2;
                 }
                 else {
-                    if(!u[1] || !u[2]) {
-                        *dst++ = '~';
-                        break;
-                    }
-                    unicode = (((uint16_t)u[0] & 0x0F) << 12)|
-                              (((uint16_t)u[1] & 0x3F) << 6) |
-                              (           u[2] & 0x3F);
-                    u += 3;
-                }
-                n = get_dos_char(unicode, &c1, &c2);
-                if (n == 1)
-                    *dst++ = c1;
-                else if (n == 2) {
-                    *dst++ = c1;
-                    *dst++ = c2;
+                    *dst++ = '~';
+                    break;
                 }
             }
         }
@@ -427,19 +414,8 @@ static char *dos_unix_name(const char *path, const char *dosN, int force)
             int uc = get_unicode(*src++, NULL);
             if (uc == 0)
                 /*NOP*/;
-            else if(uc < 128)
-                *dst++ = uc;
-            else if(uc < 0x800)
-            {
-                *dst++ = 0xC0 | (uc >> 6);
-                *dst++ = 0x80 | (uc & 0x3F);
-            }
             else
-            {
-                *dst++ = 0xE0 | (uc >> 12);
-                *dst++ = 0x80 | ((uc >> 6) & 0x3F);
-                *dst++ = 0x80 | (uc & 0x3F);
-            }
+                unicode_to_utf8(&dst, uc);
         }
         *dst = '\0';
     }
@@ -810,6 +786,7 @@ static struct dos_file_list *find_first_file(char *fspec, int label, int dirs)
 {
     // Now, separate the path to the spec
     char *glob, *unixpath, *p = strrchr(fspec, '/');
+    char *buffer = NULL;
     if(!p)
     {
         glob = fspec;
@@ -821,12 +798,37 @@ static struct dos_file_list *find_first_file(char *fspec, int label, int dirs)
         glob = p + 1;
         unixpath = fspec;
     }
+    if(mode == DOSNAME_DBCS || mode == DOSNAME_8BIT)
+    {
+        buffer = malloc(strlen(glob)*3 + 1);
+        const uint8_t *src = (const uint8_t *)glob;
+        uint8_t *dst = (uint8_t *)buffer;
+        while(*src) {
+            int unicode = utf8_to_unicode(&src);
+            if(unicode) {
+                int n, c1, c2;
+                n = get_dos_char(unicode, &c1, &c2);
+                if (n == 1)
+                    *dst++ = c1;
+                else if (n == 2) {
+                    *dst++ = c1;
+                    *dst++ = c2;
+                }
+            }
+            else {
+                *dst++ = '*';
+            }
+        }
+        *dst = '\0';
+        glob = buffer;
+    }
     debug(debug_dos, "\tfind_first '%s' at '%s'\n", glob, unixpath);
 
     // Read the directory using the given GLOB
     struct dos_file_list *dirEntries = dos_read_dir(unixpath, glob, label, dirs);
     free(fspec);
-
+    if(buffer)
+        free(buffer);
     return dirEntries;
 }
 

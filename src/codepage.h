@@ -21,5 +21,5 @@ int get_unicode(uint8_t cp, int *dbcs);
 int get_dos_char(int uc, int *c1, int *c2);
 
 /* utf8 <-> unicode converter */
-int utf8_to_unicode(uint8_t **p);
+int utf8_to_unicode(const uint8_t **p);
 void unicode_to_utf8(uint8_t **dst, int uc);

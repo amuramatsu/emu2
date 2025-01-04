@@ -499,7 +499,7 @@ int get_dos_char(int uc, int *c1, int *c2)
     return 1;
 }
 
-int utf8_to_unicode(uint8_t **p)
+int utf8_to_unicode(const uint8_t **p)
 {
     int unicode = 0;
     uint8_t *u = *p;

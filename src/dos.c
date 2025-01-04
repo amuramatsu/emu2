@@ -2802,7 +2802,7 @@ void init_dos(int argc, char **argv)
         if(i != 1)
             p = addstr(p, " ", 127 - (p - args));
         if(conv_args) {
-            uint8_t *s = (uint8_t *)argv[i];
+            const uint8_t *s = (const uint8_t *)argv[i];
             while (*s && 127 - (p - args) > 0) {
                 int c1, c2, unicode, n;
                 unicode = utf8_to_unicode(&s);
@@ -2830,7 +2830,7 @@ void init_dos(int argc, char **argv)
         if(!strncmp("PATH=", argv[i], 5) || !strcmp("PATH", argv[i]))
             have_path = 1;
         if(conv_args) {
-            uint8_t *s = (uint8_t *)argv[i];
+            const uint8_t *s = (const uint8_t *)argv[i];
             while (*s && environ + sizeof(environ) - 2 - p > 0) {
                 int c1, c2, unicode, n;
                 unicode = utf8_to_unicode(&s);
