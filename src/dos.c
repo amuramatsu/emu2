@@ -2664,6 +2664,7 @@ static void init_nls_data(void)
 void init_dos(int argc, char **argv)
 {
     char args[256], environ[4096];
+    int conv_args = 0;
     memset(args, 0, 256);
     memset(environ, 0, sizeof(environ));
 
@@ -2679,10 +2680,14 @@ void init_dos(int argc, char **argv)
     if(getenv(ENV_FILENAME))
     {
         const char *mode = getenv(ENV_FILENAME);
-        if(strcasecmp(mode, "8bit") == 0)
+        if(strcasecmp(mode, "8bit") == 0) {
+            conv_args = 1;
             dosname_mode(DOSNAME_8BIT);
-        else if(strcasecmp(mode, "dbcs") == 0)
+        }
+        else if(strcasecmp(mode, "dbcs") == 0) {
+            conv_args = 1;
             dosname_mode(DOSNAME_DBCS);
+        }
     }
 
     // Init DOS version
@@ -2791,7 +2796,24 @@ void init_dos(int argc, char **argv)
     {
         if(i != 1)
             p = addstr(p, " ", 127 - (p - args));
-        p = addstr(p, argv[i], 127 - (p - args));
+        if(conv_args) {
+            uint8_t *s = (uint8_t *)argv[i];
+            while (*s && 127 - (p - args) > 0) {
+                int c1, c2, unicode, n;
+                unicode = utf8_to_unicode(&s);
+                n = get_dos_char(unicode, &c1, &c2);
+                if (n == 1) {
+                    *p++ = c1;
+                }
+                else if (n == 2) {
+                    if (127 - (p - args) <= 2)
+                        break;
+                    *p++ = c1; *p++ = c2;
+                }
+            }
+        }
+        else
+            p = addstr(p, argv[i], 127 - (p - args));
     }
     *p = 0;
 
@@ -2802,7 +2824,24 @@ void init_dos(int argc, char **argv)
     {
         if(!strncmp("PATH=", argv[i], 5) || !strcmp("PATH", argv[i]))
             have_path = 1;
-        p = addstr(p, argv[i], environ + sizeof(environ) - 2 - p);
+        if(conv_args) {
+            uint8_t *s = (uint8_t *)argv[i];
+            while (*s && environ + sizeof(environ) - 2 - p > 0) {
+                int c1, c2, unicode, n;
+                unicode = utf8_to_unicode(&s);
+                n = get_dos_char(unicode, &c1, &c2);
+                if (n == 1) {
+                    *p++ = c1;
+                }
+                else if (n == 2) {
+                    if (environ + sizeof(environ) - 2 - p <= 2)
+                        break;
+                    *p++ = c1; *p++ = c2;
+                }
+            }
+        }
+        else
+            p = addstr(p, argv[i], environ + sizeof(environ) - 2 - p);
         *p = 0;
         p++;
     }

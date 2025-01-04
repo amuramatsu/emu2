@@ -498,3 +498,54 @@ int get_dos_char(int uc, int *c1, int *c2)
     *c1 = ' ';
     return 1;
 }
+
+int utf8_to_unicode(uint8_t **p)
+{
+    int unicode = 0;
+    uint8_t *u = *p;
+
+    if (u[0] < 0x80)
+        unicode = *u++;
+    else if (u[0] < 0xE0) {
+        if(!u[1])
+            u++;
+        else {
+            unicode = (((uint16_t)u[0] & 0x1F) << 6) |
+                      (           u[1] & 0x3F);
+            u += 2;
+        }
+    }
+    else if (u[0] < 0xf0) {
+        if(!u[1] || !u[2]) {
+            while (*u)
+                u++;
+        }
+        unicode = (((uint16_t)u[0] & 0x0F) << 12)|
+                  (((uint16_t)u[1] & 0x3F) << 6) |
+                  (           u[2] & 0x3F);
+        u += 3;
+    }
+    else {
+        for (int i=0; i<4 && *u; u++)
+            /*NOP*/;
+    }
+    *p = u;
+    return unicode;
+}
+
+void unicode_to_utf8(uint8_t **dst, int uc)
+{
+    uint8_t *d = *dst;
+    if(uc < 128)
+        *d++ = uc;
+    else if(uc < 0x800) {
+        *d++ = 0xC0 | (uc >> 6);
+        *d++ = 0x80 | (uc & 0x3F);
+    }
+    else if(uc < 0x10000) {
+        *d++ = 0xE0 | (uc >> 12);
+        *d++ = 0x80 | ((uc >> 6) & 0x3F);
+        *d++ = 0x80 | (uc & 0x3F);
+    }
+    *dst = d;
+}
