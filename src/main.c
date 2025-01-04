@@ -76,6 +76,20 @@ static void intr12(void)
     cpuSetAX(640);
 }
 
+// BIOS - GET BIOS TYPE
+static void intr15(void)
+{
+    int ax = cpuGetAX();
+    if(ax == 0x4900)
+    {
+        cpuClrFlag(cpuFlag_CF);
+        cpuSetAX(0x0000);
+        cpuSetBX(cpuGetBX() & 0xFF00);
+    }
+    else
+        debug(debug_int, "UNHANDLED INT 15, AX=%04x\n", ax);
+}
+
 // Network access, ignored.
 static void intr2a(void) {}
 
@@ -129,6 +143,8 @@ void bios_routine(unsigned inum)
         intr11();
     else if(inum == 0x12)
         intr12();
+    else if(inum == 0x15)
+        intr15();
     else if(inum == 0x06)
     {
         uint16_t ip = cpuGetStack(0);
