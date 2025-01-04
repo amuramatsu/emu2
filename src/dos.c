@@ -838,23 +838,25 @@ static void dos_get_drive_info(uint8_t drive)
 
 static void fputc_unicode(uint8_t ch, FILE* fd)
 {
-    uint16_t uc = get_unicode(ch, NULL);
-    if(uc == 0)
-        /*NOP*/;
-    else if(uc < 128)
-        fputc(uc, fd);
-    else if(uc < 0x800)
-    {
-        fputc(0xC0 | (uc >> 6), fd);
-        fputc(0x80 | (uc & 0x3F), fd);
+    static int in_dbcs = 0;
+    if (ch < 0x20)
+        in_dbcs = 0;
+    if (!in_dbcs && ch < 0x80)
+        fputc(ch, fd);
+    else {
+        uint16_t uc = get_unicode(ch, NULL);
+        uint8_t buf[5];
+        uint8_t *p = buf;
+        if(uc == 0) {
+            in_dbcs = 1;
+            return;
+        }
+        unicode_to_utf8(&p, uc);
+        *p = '\0';
+        fputs((char *)buf, fd);
+        fflush(fd);
+        in_dbcs = 0;
     }
-    else
-    {
-        fputc(0xE0 | (uc >> 12), fd);
-        fputc(0x80 | ((uc >> 6) & 0x3F), fd);
-        fputc(0x80 | (uc & 0x3F), fd);
-    }
-    fflush(fd);
 }
 
 // Writes a character to standard output.
