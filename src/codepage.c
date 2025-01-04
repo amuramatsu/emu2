@@ -285,9 +285,9 @@ static void set_codepage_iconv() {
             cp_iconv_input = (iconv_t)(-1);
             cp_iconv_output = (iconv_t)(-1);
         }
-        free(names);
         debug(debug_dos, "set_codepage_iconv '%s'<->'%s'\n",
               ICONV_UCS2BE_NAME, name ? name : "(NULL)");
+        free(names);
     }
     dbcs_prev_char = 0;
 }
