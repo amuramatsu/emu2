@@ -641,46 +641,6 @@ static void set_xy_full(unsigned x, unsigned y, uint8_t chr, uint8_t color, int 
         *addr_xy_topview(x, y) = get_cell(chr, color).value;
 }
 
-static void fix_dbcs2nd_xy_pre(unsigned x, unsigned y, int page)
-{
-    int in_dbcs = 0;
-    if (x == 0)
-        return;
-    for (int xi = 0; xi < x; xi++) {
-        if(in_dbcs)
-            in_dbcs = 0;
-        else {
-            uint16_t *p = addr_xy(xi, y, page);
-            union term_cell cell;
-            cell.value = *p;
-            if(check_dbcs_1st(cell.chr))
-                in_dbcs = 1;
-        }
-    }
-    if(in_dbcs)
-        set_xy_char(x-1, y, 0x20, page);
-}
-
-static void fix_dbcs2nd_xy_post(unsigned x, unsigned y, int page)
-{
-    int in_dbcs = 0;
-    if (x == 0)
-        return;
-    for (int xi = 0; xi < x; xi++) {
-        if(in_dbcs)
-            in_dbcs = 0;
-        else {
-            uint16_t *p = addr_xy(x, y, page);
-            union term_cell cell;
-            cell.value = *p;
-            if(check_dbcs_1st(cell.chr))
-                in_dbcs = 1;
-        }
-    }
-    if(in_dbcs)
-        set_xy_char(x, y, 0x20, page);
-}
-
 static uint16_t get_xy(unsigned x, unsigned y, int page)
 {
     uint16_t mem = (page & 7) * (vid_sy > 25 ? 0x2000 : 0x1000);
@@ -725,13 +685,11 @@ static void video_putchar(uint8_t ch, uint16_t at, int page)
     }
     else
     {
-        fix_dbcs2nd_xy_pre(vid_posx[page], vid_posy[page], page);
         if(at & 0xFF00)
             set_xy_char(vid_posx[page], vid_posy[page], ch, page);
         else
             set_xy_full(vid_posx[page], vid_posy[page], ch, at, page);
         vid_posx[page]++;
-        fix_dbcs2nd_xy_post(vid_posx[page], vid_posy[page], page);
         if(vid_posx[page] >= vid_sx)
         {
             vid_posx[page] = 0;
@@ -855,7 +813,6 @@ void intr10(void)
         uint16_t py = vid_posy[page];
         uint16_t ch = ax & 0xFF;
         uint16_t at = cpuGetBX();
-        fix_dbcs2nd_xy_pre(px, py, page);
         for(int i = cpuGetCX(); i > 0; i--)
         {
             if(full)
@@ -871,7 +828,6 @@ void intr10(void)
                     py = 0;
             }
         }
-        fix_dbcs2nd_xy_post(px, py, page);
         break;
     }
     case 0x0E: // TELETYPE OUTPUT
