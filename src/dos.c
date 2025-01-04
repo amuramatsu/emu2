@@ -1642,6 +1642,9 @@ void intr21(void)
         cpuSetAX(dosver);
         cpuSetBX(0x0001);
         break;
+    case 0x32: // get Drive Parameter Block
+        cpuSetAL(0xFF); // return as Network drive
+        break;
     case 0x33: // BREAK SETTINGS
         if(ax == 0x3300)
             cpuSetDX((cpuGetDX() & 0xFF00) | 1);
