@@ -53,6 +53,14 @@ static int video_initialized;
 static uint16_t crtc_cursor_loc;
 // Using Top-view I/F
 static int using_top_view;
+// VRAM cell type (SBCS or DBCS)
+enum vram_cell_type {
+    VRAM_CELL_SBCS,
+    VRAM_CELL_DBCS_1ST,
+    VRAM_CELL_DBCS_2ND
+};
+static enum vram_cell_type vram_cell_type[0x2000];
+static int video_putchar_cont = 0;
 
 // Forward
 static void term_goto_xy(unsigned x, unsigned y);
@@ -153,6 +161,12 @@ static void set_text_mode(int clear)
     {
         uint16_t *vm = (uint16_t *)(memory + 0xB8000);
         for(int i = 0; i < 16384; i++)
+            vm[i] = get_cell(0x20, 0x07).value;
+        for(int i = 0; i < sizeof(vram_cell_type)/sizeof(vram_cell_type[0]);
+             i++)
+            vram_cell_type[i] = VRAM_CELL_SBCS;
+        vm = (uint16_t *)(memory + TOPVIEW_BUFFER_ADDR);
+        for(int i = 0; i < 0x8000; i++)
             vm[i] = get_cell(0x20, 0x07).value;
     }
     for(int i = 0; i < 8; i++)
@@ -436,6 +450,16 @@ static void debug_screen(void)
     free(buf);
 }
 
+static void set_xy_type(unsigned x, unsigned y, enum vram_cell_type type)
+{
+    vram_cell_type[x + y * vid_sx] = type;
+}
+
+static enum vram_cell_type get_xy_type(unsigned x, unsigned y)
+{
+    return vram_cell_type[x + y * vid_sx];
+}
+
 // Compares current screen with memory data
 void check_screen(void)
 {
@@ -459,11 +483,15 @@ void check_screen(void)
         {
             union term_cell cell;
             cell.value = vm[x + y * vid_sx];
+
             if(check_dbcs_1st(cell.chr))
             {
                 if (x == vid_sx-1)
                 {
+                    cell.chr = ' ';
+                    vm[x + y * vid_sx] = cell.value;
                     term_screen[y][x] = cell;
+                    set_xy_type(x, y, VRAM_CELL_SBCS);
                     put_vc_xy(' ', cell.color, x, y);
                 }
                 else
@@ -475,6 +503,8 @@ void check_screen(void)
                     {
                         term_screen[y][x] = cell;
                         term_screen[y][x+1] = cell2;
+                        set_xy_type(x, y, VRAM_CELL_DBCS_1ST);
+                        set_xy_type(x+1, y, VRAM_CELL_DBCS_2ND);
                         put_vc_xy_dbcs(cell.chr, cell2.chr, cell.color, x, y);
                     }
                     x++;
@@ -484,6 +514,7 @@ void check_screen(void)
             {
                 // Output character
                 term_screen[y][x] = cell;
+                set_xy_type(x, y, VRAM_CELL_SBCS);
                 put_vc_xy(cell.chr, cell.color, x, y);
             }
         }
@@ -546,7 +577,10 @@ static void vid_scroll_up(uint8_t x0, uint8_t y0, uint8_t x1, uint8_t y1, int n,
     // Set last rows
     for(unsigned y = y1 - (n - 1); y <= y1; y++)
         for(unsigned x = x0; x <= x1; x++)
+        {
             vm[x + y * vid_sx] = get_cell(0x20, vid_color).value;
+            vram_cell_type[x + y * vid_sx] = VRAM_CELL_SBCS;
+        }
     if(using_top_view)
     {
         uint16_t *vm = (uint16_t *)(memory + TOPVIEW_BUFFER_ADDR);
@@ -590,7 +624,10 @@ static void vid_scroll_dwn(uint8_t x0, uint8_t y0, uint8_t x1, uint8_t y1, unsig
     // Set first rows
     for(unsigned y = y0; y < y0 + n; y++)
         for(unsigned x = x0; x <= x1; x++)
+        {
             vm[x + y * vid_sx] = get_cell(0x20, vid_color).value;
+            vram_cell_type[x + y * vid_sx] = VRAM_CELL_SBCS;
+        }
     if(using_top_view)
     {
         uint16_t *vm = (uint16_t *)(memory + TOPVIEW_BUFFER_ADDR);
@@ -672,34 +709,62 @@ static void video_putchar(uint8_t ch, uint16_t at, int page)
             vid_posy[page] = vid_sy - 1;
             vid_scroll_up(0, 0, vid_sx - 1, vid_sy - 1, 1, page);
         }
+        video_putchar_cont = 0;
     }
     else if(ch == 0x0D)
+    {
         vid_posx[page] = 0;
+        video_putchar_cont = 0;
+    }
     else if(ch == 0x08)
     {
         if(vid_posx[page] > 0)
             vid_posx[page]--;
+        video_putchar_cont = 0;
     }
     else if(ch == 0x07)
     {
         // BEL, just write to the terminal now
         if(tty_file)
             putc('\x07', tty_file);
+        video_putchar_cont = 0;
     }
     else
     {
+        enum vram_cell_type type = VRAM_CELL_SBCS;
         if(in_dbcs)
-            in_dbcs = 0;
-        else if(check_dbcs_1st(ch))
         {
-            if(vid_posx[page] == vid_sx-1)
-                video_putchar(0x20, at, page);
-            in_dbcs = 1;
+            in_dbcs = 0;
+            type = VRAM_CELL_DBCS_2ND;
+        }
+        else
+        {
+            int lastx = vid_posx[page] >= vid_sx-1;
+            if (!lastx &&
+                get_xy_type(vid_posx[page], vid_posy[page]) == VRAM_CELL_DBCS_1ST)
+            {
+                set_xy_char(vid_posx[page]+1, vid_posy[page], 0x20, page);
+                set_xy_type(vid_posx[page]+1, vid_posy[page], VRAM_CELL_SBCS);
+            }
+            if (!video_putchar_cont && vid_posx[page] > 0 &&
+                get_xy_type(vid_posx[page], vid_posy[page]) == VRAM_CELL_DBCS_2ND)
+            {
+                set_xy_char(vid_posx[page]-1, vid_posy[page], 0x20, page);
+                set_xy_type(vid_posx[page]-1, vid_posy[page], VRAM_CELL_SBCS);
+            }
+            if(check_dbcs_1st(ch))
+            {
+                if(lastx)
+                    video_putchar(0x20, at, page);
+                type = VRAM_CELL_DBCS_1ST;
+                in_dbcs = 1;
+            }
         }
         if(at & 0xFF00)
             set_xy_char(vid_posx[page], vid_posy[page], ch, page);
         else
             set_xy_full(vid_posx[page], vid_posy[page], ch, at, page);
+        set_xy_type(vid_posx[page]+1, vid_posy[page], type);
         vid_posx[page]++;
         if(vid_posx[page] >= vid_sx)
         {
@@ -710,7 +775,10 @@ static void video_putchar(uint8_t ch, uint16_t at, int page)
                 vid_posy[page] = vid_sy - 1;
                 vid_scroll_up(0, 0, vid_sx - 1, vid_sy - 1, 1, page);
             }
+            video_putchar_cont = 0;
         }
+        else
+            video_putchar_cont = 1;
     }
     update_posxy();
 }
@@ -769,6 +837,7 @@ void intr10(void)
             vid_posx[page] = vid_sx - 1;
         if(vid_posy[page] >= vid_sy)
             vid_posy[page] = vid_sy - 1;
+        video_putchar_cont = 0;
         update_posxy();
         break;
     }
@@ -778,6 +847,7 @@ void intr10(void)
         reload_posxy(page);
         cpuSetDX(vid_posx[page] + (vid_posy[page] << 8));
         cpuSetCX(0x0010);
+        video_putchar_cont = 0;
         break;
     }
     case 0x05: // SELECT DISPLAY PAGE
@@ -789,12 +859,14 @@ void intr10(void)
             vid_page = ax & 7;
             update_posxy();
         }
+        video_putchar_cont = 0;
         break;
     case 0x06: // SCROLL UP WINDOW
     {
         uint16_t cx = cpuGetCX(), dx = cpuGetDX();
         vid_color = cpuGetBX() >> 8;
         vid_scroll_up(cx, cx >> 8, dx, dx >> 8, ax & 0xFF, vid_page);
+        video_putchar_cont = 0;
         break;
     }
     case 0x07: // SCROLL DOWN WINDOW
@@ -802,6 +874,7 @@ void intr10(void)
         uint16_t cx = cpuGetCX(), dx = cpuGetDX();
         vid_color = cpuGetBX() >> 8;
         vid_scroll_dwn(cx, cx >> 8, dx, dx >> 8, ax & 0xFF, vid_page);
+        video_putchar_cont = 0;
         break;
     }
     case 0x08: // READ CHAR AT CURSOR
@@ -812,6 +885,7 @@ void intr10(void)
             cpuSetAX(get_xy_topview(vid_posx[page], vid_posy[page]));
         else
             cpuSetAX(get_xy(vid_posx[page], vid_posy[page], page));
+        video_putchar_cont = 0;
         break;
     }
     case 0x09: // WRITE CHAR AT CURSOR
@@ -881,6 +955,7 @@ void intr10(void)
             vid_set_font(16);
         else
             debug(debug_video, "UNHANDLED INT 10, AX=%04x\n", ax);
+        video_putchar_cont = 0;
         break;
     case 0x12: // ALT FUNCTION SELECT
     {
@@ -922,6 +997,7 @@ void intr10(void)
         }
         else
             debug(debug_video, "UNHANDLED INT 10, AH=12 BL=%02x\n", bl);
+        video_putchar_cont = 0;
     }
     break;
     case 0x13: // WRITE STRING
@@ -1001,29 +1077,77 @@ void intr10(void)
         }
         break;
     case 0x1D: // Set Keyboard shift statusline
-        if(ax == 0x1d02) {
+        if(ax == 0x1d02)
             cpuSetBX(0x0000);
-            break;
-        }
-        debug(debug_video, "UNHANDLED INT 10, AX=%04x\n", ax);
+        else
+            debug(debug_video, "UNHANDLED INT 10, AX=%04x\n", ax);
+        video_putchar_cont = 0;
         break;
     case 0xEF: // TEST MSHERC.COM DISPLAY TYPE
         // Ignored
+        video_putchar_cont = 0;
         break;
     case 0xFE: // Top-view I/F: get Video Buffer address
         using_top_view = 1;
+        video_putchar_cont = 0;
         cpuSetES((TOPVIEW_BUFFER_ADDR >> 4) & 0xffff);
         cpuSetDI(TOPVIEW_BUFFER_ADDR & 0x000f);
         break;
     case 0xFF: // Top-view I/F: update video buffer
         {
             unsigned int addr = (((unsigned)cpuGetES()) << 4) + cpuGetDI();
-            int start = addr - TOPVIEW_BUFFER_ADDR;
-            debug(debug_video, "  start=%d, len=%d\n", start, cpuGetCX());
-            memcpy(memory + 0xB8000 + start,
-                   memory + TOPVIEW_BUFFER_ADDR + start,
-                   cpuGetCX()*sizeof(term_screen[0][0]));
+            int start = (addr - TOPVIEW_BUFFER_ADDR)/sizeof(term_screen[0][0]);
+            int len = cpuGetCX();
+            uint16_t *vm = (uint16_t *)(memory + 0xB8000);
+            uint16_t *vm_tv = (uint16_t *)(memory + TOPVIEW_BUFFER_ADDR);
+            int in_dbcs = 0;
+            debug(debug_video, "  start=%d, len=%d\n", start, len);
+            if(start > 0 && vram_cell_type[start] == VRAM_CELL_DBCS_2ND)
+            {
+                union term_cell cell;
+                cell.value = vm[start-1];
+                cell.chr = 0x20;
+                vm[start-1] = cell.value;
+                vram_cell_type[start-1] = VRAM_CELL_SBCS;
+            }
+            for(int i = 0; i < len; i++)
+            {
+                union term_cell cell;
+                cell.value = vm_tv[start + i];
+                if(in_dbcs)
+                {
+                    if(cell.chr <= 0x20)
+                    {
+                        union term_cell cell_p;
+                        cell_p.value = vm[start + i - 1];
+                        cell_p.chr = 0x20;
+                        vm[start + i - 1] = cell_p.value;
+                        vram_cell_type[start + i - 1] = VRAM_CELL_SBCS;
+                        vram_cell_type[start + i] = VRAM_CELL_SBCS;
+                    }
+                    else
+                        vram_cell_type[start + i] = VRAM_CELL_DBCS_2ND;
+                    in_dbcs = 0;
+                }
+                else if(check_dbcs_1st(cell.chr))
+                {
+                    vram_cell_type[start + i] = VRAM_CELL_DBCS_1ST;
+                    in_dbcs = 1;
+                }
+                else
+                    vram_cell_type[start + i] = VRAM_CELL_SBCS;
+                vm[start + i] = cell.value;
+            }
+            if(vram_cell_type[start + len] == VRAM_CELL_DBCS_2ND)
+            {
+                union term_cell cell;
+                cell.value = vm[start + len];
+                cell.chr = 0x20;
+                vm[start + len] = cell.value;
+                vram_cell_type[start + len] = VRAM_CELL_SBCS;
+            }
         }
+        video_putchar_cont = 0;
         break;
     default:
         debug(debug_video, "UNHANDLED INT 10, AX=%04x\n", ax);
