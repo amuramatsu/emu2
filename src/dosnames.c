@@ -194,32 +194,43 @@ static int dos_unix_sort(const struct dirent **s1, const struct dirent **s2)
 // GLOB
 static int dos_glob(const uint8_t *n, const char *g)
 {
+    int in_dbcs_g = 0;
+    int in_dbcs_n = 0;
     while(*n && *g)
     {
         char cg = *g, cn = *n;
         // An '*' consumes any letter, except the dot
-        if(cg == '*')
+        if(!in_dbcs_g && cg == '*')
         {
             // Special case "." and ".."
-            if(cn == '.' && (n[1] != '.' && n[1] != 0))
+            if(!in_dbcs_n && cn == '.' && (n[1] != '.' && n[1] != 0))
                 g++;
             else
                 n++;
             continue;
         }
         // An '?' consumes one letter, except the dot
-        if(cg == '?')
+        if(!in_dbcs_g && cg == '?')
         {
             g++;
-            if(cn != '.')
+            if(!in_dbcs_n && cn != '.')
                 n++;
             continue;
         }
         // Convert letters to uppercase
-        if(cg >= 'a' && cg <= 'z')
+        if(!in_dbcs_g && cg >= 'a' && cg <= 'z')
             cg = cg - 'a' + 'A';
-        if(cn >= 'a' && cn <= 'z')
+        if(!in_dbcs_n && cn >= 'a' && cn <= 'z')
             cn = cn - 'a' + 'A';
+        // DBCS check
+        if(in_dbcs_g)
+            in_dbcs_g = 0;
+        else if(mode == DOSNAME_DBCS && check_dbcs_1st(cg))
+            in_dbcs_g = 1;
+        if(in_dbcs_n)
+            in_dbcs_n = 0;
+        else if(mode == DOSNAME_DBCS && check_dbcs_1st(cn))
+            in_dbcs_n = 1;
         // Consume equal letters or '?'
         if(cg == cn)
         {
@@ -229,6 +240,8 @@ static int dos_glob(const uint8_t *n, const char *g)
         }
         return 0;
     }
+    if(mode == DOSNAME_DBCS && in_dbcs_g)
+        return 0;
     // Consume extra '*', '?' and '.'
     while(*g == '*' || *g == '?' || *g == '.')
         g++;
