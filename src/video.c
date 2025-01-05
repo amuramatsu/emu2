@@ -660,7 +660,10 @@ static uint16_t get_xy_topview(unsigned x, unsigned y)
 
 static void video_putchar(uint8_t ch, uint16_t at, int page)
 {
+    static int in_dbcs = 0;
     page = page & 7;
+    if(ch < 0x20)
+        in_dbcs = 0;
     if(ch == 0x0A)
     {
         vid_posy[page]++;
@@ -685,6 +688,14 @@ static void video_putchar(uint8_t ch, uint16_t at, int page)
     }
     else
     {
+        if(in_dbcs)
+            in_dbcs = 0;
+        else if(check_dbcs_1st(ch))
+        {
+            if(vid_posx[page] == vid_sx-1)
+                video_putchar(0x20, at, page);
+            in_dbcs = 1;
+        }
         if(at & 0xFF00)
             set_xy_char(vid_posx[page], vid_posy[page], ch, page);
         else
