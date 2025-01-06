@@ -93,6 +93,12 @@ The available environment variables are:
                        between 0 (no use) to 2048 (32MiB).
                        The default is 0 (no use).
 
+- `EMU2_FILENAME`      Filename handling/convertion mode. You can choise from
+                       "7bit" (not supported with 8-bit charactors), "8bit"
+                       (8-bit charactors are supported, but there are no care
+                       about upper/lower cases) or "dbcs" (DBCS file names are
+                       supported with 8-bit charactors.) Default is "7bit."
+
 Simple Example
 --------------
 
