@@ -51,8 +51,8 @@ static FILE *tty_file;
 static int video_initialized;
 // Actual cursor position in the CRTC register
 static uint16_t crtc_cursor_loc;
-// Using Top-view I/F
-static int using_top_view;
+// Using TopView I/F
+static int using_topview;
 // VRAM cell type (SBCS or DBCS)
 enum vram_cell_type {
     VRAM_CELL_SBCS,
@@ -581,7 +581,7 @@ static void vid_scroll_up(uint8_t x0, uint8_t y0, uint8_t x1, uint8_t y1, int n,
             vm[x + y * vid_sx] = get_cell(0x20, vid_color).value;
             vram_cell_type[x + y * vid_sx] = VRAM_CELL_SBCS;
         }
-    if(using_top_view)
+    if(page == 0 && using_topview)
     {
         uint16_t *vm = (uint16_t *)(memory + TOPVIEW_BUFFER_ADDR);
         for(unsigned y = y0; y + n <= y1; y++)
@@ -628,7 +628,7 @@ static void vid_scroll_dwn(uint8_t x0, uint8_t y0, uint8_t x1, uint8_t y1, unsig
             vm[x + y * vid_sx] = get_cell(0x20, vid_color).value;
             vram_cell_type[x + y * vid_sx] = VRAM_CELL_SBCS;
         }
-    if(using_top_view)
+    if(page == 0 && using_topview)
     {
         uint16_t *vm = (uint16_t *)(memory + TOPVIEW_BUFFER_ADDR);
         for(unsigned y = y1; y >= y0 + n; y--)
@@ -664,7 +664,7 @@ static void set_xy_char(unsigned x, unsigned y, uint8_t chr, int page)
     cell.value = *p;
     cell.chr = chr;
     *p = cell.value;
-    if(using_top_view)
+    if(page == 0 && using_topview)
     {
         p = addr_xy_topview(x, y);
         *p = cell.value;
@@ -674,7 +674,7 @@ static void set_xy_char(unsigned x, unsigned y, uint8_t chr, int page)
 static void set_xy_full(unsigned x, unsigned y, uint8_t chr, uint8_t color, int page)
 {
     *addr_xy(x, y, page) = get_cell(chr, color).value;
-    if(using_top_view)
+    if(page == 0 && using_topview)
         *addr_xy_topview(x, y) = get_cell(chr, color).value;
 }
 
@@ -881,7 +881,7 @@ void intr10(void)
     {
         int page = (cpuGetBX() >> 8) & 7;
         reload_posxy(page);
-        if(using_top_view)
+        if(page == 0 && using_topview)
             cpuSetAX(get_xy_topview(vid_posx[page], vid_posy[page]));
         else
             cpuSetAX(get_xy(vid_posx[page], vid_posy[page], page));
@@ -1087,13 +1087,13 @@ void intr10(void)
         // Ignored
         video_putchar_cont = 0;
         break;
-    case 0xFE: // Top-view I/F: get Video Buffer address
-        using_top_view = 1;
+    case 0xFE: // TopView I/F: get Video Buffer address
+        using_topview = 1;
         video_putchar_cont = 0;
         cpuSetES((TOPVIEW_BUFFER_ADDR >> 4) & 0xffff);
         cpuSetDI(TOPVIEW_BUFFER_ADDR & 0x000f);
         break;
-    case 0xFF: // Top-view I/F: update video buffer
+    case 0xFF: // TopView I/F: update video buffer
         {
             unsigned int addr = (((unsigned)cpuGetES()) << 4) + cpuGetDI();
             int start = (addr - TOPVIEW_BUFFER_ADDR)/sizeof(term_screen[0][0]);
