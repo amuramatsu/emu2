@@ -168,7 +168,7 @@ void bios_routine(unsigned inum)
         keyb_handle_irq(); // Keyboard interrupt
 #ifdef EMS_SUPPORT
     else if(inum == 0x67)
-        int67();
+        intr67();
 #endif
     else
         debug(debug_int, "UNHANDLED INT %02x, AX=%04x\n", inum, cpuGetAX());

@@ -426,10 +426,10 @@ static int dos_rw_record_fcb(unsigned addr, int write, int update, int seq)
 #ifdef EMS_SUPPORT
     int buf_allocated = 0;
     if (in_ems_pageframe2(addr, rsize)) {
-	buf_allocated = 1;
-	buf = malloc(rsize);
-	if (buf && write)
-	    ems_getmem(buf, addr, rsize);
+        buf_allocated = 1;
+        buf = malloc(rsize);
+        if (buf && write)
+            ems_getmem(buf, addr, rsize);
     }
 #endif
     if(!buf || !rsize)
@@ -458,12 +458,12 @@ static int dos_rw_record_fcb(unsigned addr, int write, int update, int seq)
 
     dos_error = 0;
     for(unsigned i = n; i < rsize; i++)
-	buf[i] = 0;
+        buf[i] = 0;
 #ifdef EMS_SUPPORT
     if (buf_allocated) {
-	if (!write)
-	    ems_putmem(addr, buf, rsize);
-	free(buf);
+        if (!write)
+            ems_putmem(addr, buf, rsize);
+        free(buf);
     }
 #endif
     if(n == rsize)
@@ -1711,15 +1711,15 @@ void intr21(void)
             cpuSetAX(dos_error);
             break;
         }
-	int len = cpuGetCX();
-	uint32_t addr = cpuGetAddrDS(cpuGetDX());
-	uint8_t *buf = getptr(addr, len);
+        int len = cpuGetCX();
+        uint32_t addr = cpuGetAddrDS(cpuGetDX());
+        uint8_t *buf = getptr(addr, len);
 #ifdef EMS_SUPPORT
-	int buf_allocated = 0;
-	if (in_ems_pageframe2(addr, len)) {
-	    buf_allocated = 1;
-	    buf = malloc(len);
-	}
+        int buf_allocated = 0;
+        if (in_ems_pageframe2(addr, len)) {
+            buf_allocated = 1;
+            buf = malloc(len);
+        }
 #endif
         if(!buf)
         {
@@ -1743,10 +1743,10 @@ void intr21(void)
         dos_error = 0;
         cpuClrFlag(cpuFlag_CF);
 #ifdef EMS_SUPPORT
-	if (buf_allocated) {
-	    ems_putmem(addr, buf, len);
-	    free(buf);
-	}
+        if (buf_allocated) {
+            ems_putmem(addr, buf, len);
+            free(buf);
+        }
 #endif
         break;
     }
@@ -1788,17 +1788,17 @@ void intr21(void)
             }
             break;
         }
-	uint32_t addr = cpuGetAddrDS(cpuGetDX());
-	uint8_t *buf = getptr(addr, len);
+        uint32_t addr = cpuGetAddrDS(cpuGetDX());
+        uint8_t *buf = getptr(addr, len);
 #ifdef EMS_SUPPORT
-	int buf_allocated = 0;
-	if (in_ems_pageframe2(addr, len)) {
-	    buf_allocated = 1;
-	    buf = malloc(len);
-	    if (buf) {
-		ems_getmem(buf, addr, len);
-	    }
-	}
+        int buf_allocated = 0;
+        if (in_ems_pageframe2(addr, len)) {
+            buf_allocated = 1;
+            buf = malloc(len);
+            if (buf) {
+                ems_getmem(buf, addr, len);
+            }
+        }
 #endif
         if(!buf)
         {
@@ -1823,8 +1823,8 @@ void intr21(void)
         dos_error = 0;
         cpuClrFlag(cpuFlag_CF);
 #ifdef EMS_SUPPORT
-	if (buf_allocated)
-	    free(buf);
+        if (buf_allocated)
+            free(buf);
 #endif
         break;
     }
@@ -2753,14 +2753,14 @@ void init_dos(int argc, char **argv)
     const char *emsmem = getenv(ENV_EMSMEM);
     int ems_pages = 0;
     if (emsmem != NULL) {
-	char *ep;
-	ems_pages = strtol(emsmem, &ep, 0);
-	if (*ep  || ems_pages < 0 || ems_pages > 2048)
-	    print_error("%s must be set between 0 to 2048\n", ENV_EMSMEM);
+        char *ep;
+        ems_pages = strtol(emsmem, &ep, 0);
+        if (*ep  || ems_pages < 0 || ems_pages > 2048)
+            print_error("%s must be set between 0 to 2048\n", ENV_EMSMEM);
     }
     if (ems_pages != 0) {
-	debug(debug_dos, "set EMS pages = %d\n", ems_pages);
-	init_ems(ems_pages);
+        debug(debug_dos, "set EMS pages = %d\n", ems_pages);
+        init_ems(ems_pages);
     }
 #endif
 
