@@ -1204,8 +1204,6 @@ void intr21(void)
 
     switch(ah)
     {
-    case 0: // TERMINATE PROGRAM
-        exit(0);
     case 1: // CHARACTER INPUT WITH ECHO
         char_input(1);
         dos_putchar(cpuGetAX() & 0xFF, 1);
@@ -2165,7 +2163,7 @@ void intr21(void)
             if(!env_seg)
                 env_seg = get16(cpuGetAddress(get_current_PSP(), 0x2C));
             int eaddr = cpuGetAddress(env_seg, 0);
-            int elen = 0;
+            int elen = 2;
             char *env = "\0\0";
             
             // Sanitize env
@@ -2177,7 +2175,7 @@ void intr21(void)
             }
             if(eaddr < 0xFFFFF)
             {
-                elen = eaddr - cpuGetAddress(env_seg, 0);
+                elen = eaddr - cpuGetAddress(env_seg, 0) + 1;
                 env = (char *)(memory + cpuGetAddress(env_seg, 0));
             }
             
@@ -2224,11 +2222,15 @@ void intr21(void)
                 cpuClrFlag(cpuFlag_TF);
 
                 // Push Flags, IP and CS
-                uint16_t flags = 0x0200;
+                uint16_t flags = 0xf202;
                 put16(cpuGetAddress(cpuGetSS(), cpuGetSP()-2), flags);
                 put16(cpuGetAddress(cpuGetSS(), cpuGetSP()-4), cpuGetCS());
                 put16(cpuGetAddress(cpuGetSS(), cpuGetSP()-6), cpuGetIP());
                 cpuSetSP(cpuGetSP()-6);
+
+                // save return address to Int22 vector
+                put16(0x22 * 4, saveIP);
+                put16(0x22 * 4 + 2, saveCS);
 
                 // restore IP & CS
                 cpuSetIP(saveIP);
@@ -2272,12 +2274,19 @@ void intr21(void)
         free(fname);
         break;
     }
+    case 0: // TERMINATE PROGRAM
     case 0x31: // Terminate and Stay Resident
     case 0x4C: // EXIT
+    {
+        uint16_t parent_psp = get16(cpuGetAddress(get_current_PSP(), 22));
+        int copied_only_psp = 0;
+
         // Detect if our PSP is last one
-        debug(debug_dos, "\texit PSP:'%04x', PARENT:%04x.\n", get_current_PSP(),
-              get16(cpuGetAddress(get_current_PSP(), 22)));
-        if(0xFFFE == get16(cpuGetAddress(get_current_PSP(), 22)))
+        debug(debug_dos, "\texit PSP:'%04x', PARENT:%04x.\n",
+              get_current_PSP(), parent_psp);
+        if ((ax & 0xff00) == 0x0000)
+            ax = 0x4c00;
+        if(0xFFFE == parent_psp)
             exit(ax & 0xFF);
         else
         {
@@ -2285,14 +2294,36 @@ void intr21(void)
             // TODO: we must close all child file descriptors and deallocate
             //       child memory.
             return_code = cpuGetAX() & 0xFF;
+
+            uint8_t *psp_p = getptr(cpuGetAddress(get_current_PSP(), 0), 0x100);
+            uint8_t *ppsp_p = getptr(cpuGetAddress(parent_psp, 0), 0x100);
+            if(!memcmp(psp_p+0x0e, ppsp_p+0x0e, 8) &&
+               !memcmp(psp_p+0x18, ppsp_p+0x18, 22) &&
+               !memcmp(psp_p+0x32, ppsp_p+0x32, 0x80-0x32))
+            {
+                copied_only_psp = 1;
+                debug(debug_dos, "\t\t-> simply copied\n");
+            }
+
             // Patch INT 22h, 23h and 24h addresses to the ones saved in new PSP
-            put16(0x88, get16(cpuGetAddress(get_current_PSP(), 10)));
-            put16(0x8A, get16(cpuGetAddress(get_current_PSP(), 12)));
-            put16(0x8C, get16(cpuGetAddress(get_current_PSP(), 14)));
-            put16(0x8E, get16(cpuGetAddress(get_current_PSP(), 16)));
-            put16(0x90, get16(cpuGetAddress(get_current_PSP(), 18)));
-            put16(0x92, get16(cpuGetAddress(get_current_PSP(), 20)));
-            if ((ax & 0xff00) == 0x4c00)
+            if(!copied_only_psp)
+            {
+                put16(0x88, get16(cpuGetAddress(get_current_PSP(), 10)));
+                put16(0x8A, get16(cpuGetAddress(get_current_PSP(), 12)));
+                put16(0x8C, get16(cpuGetAddress(get_current_PSP(), 14)));
+                put16(0x8E, get16(cpuGetAddress(get_current_PSP(), 16)));
+                put16(0x90, get16(cpuGetAddress(get_current_PSP(), 18)));
+                put16(0x92, get16(cpuGetAddress(get_current_PSP(), 20)));
+            }
+            if((ax & 0xff00) == 0x3100) // TSR
+            {
+                int resize = cpuGetDX() & 0xffff;
+                if(resize < 0x06)
+                    resize = 0x06;
+                mem_resize_segment(get_current_PSP()-1, resize);
+                return_code |= 0x300;
+            }
+            else
             {
                 // Deallocate child memory
                 mem_free_owned(get_current_PSP());
@@ -2300,18 +2331,22 @@ void intr21(void)
                 dos_close_allfile_owned(get_current_PSP());
             }
             // Set PSP to parent
-            set_current_PSP(get16(cpuGetAddress(get_current_PSP(), 22)));
+            set_current_PSP(parent_psp);
+
             // Get last stack
-            cpuSetSS(get16(cpuGetAddress(get_current_PSP(), 0x30)));
-            cpuSetSP(get16(cpuGetAddress(get_current_PSP(), 0x2E)));
-            int stack = cpuGetAddress(cpuGetSS(), cpuGetSP());
-            // Fixup interrupt return
-            put16(stack, get16(0x22 * 4));
-            put16(stack + 2, get16(0x22 * 4 + 2));
-            put16(stack + 4, 0xf202);
+            if(!copied_only_psp)
+            {
+                cpuSetSS(get16(cpuGetAddress(get_current_PSP(), 0x30)));
+                cpuSetSP(get16(cpuGetAddress(get_current_PSP(), 0x2E)));
+            }
+
+            // get return address (this is not needed)
+            //cpuSetIP(get16(0x22 * 4));
+            //cpuSetCS(get16(0x22 * 4 + 2));
             // And exit!
         }
         break;
+    }
     case 0x4D: // GET RETURN CODE (ERRORLEVEL)
         cpuSetAX(return_code);
         return_code = 0;
