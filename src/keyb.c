@@ -323,6 +323,13 @@ static int get_esc_secuence(void)
 static int read_key(void)
 {
     char ch = '\xFF';
+    static int prev_key;
+
+    if (prev_key) {
+        ch = prev_key;
+        prev_key = 0;
+        return ch;
+    }
     // Reads first key code
     if(read(tty_fd, &ch, 1) == 0)
         return -1; // No data
@@ -340,27 +347,46 @@ static int read_key(void)
     if((ch & 0xE0) == 0xC0)
     {
         char ch1 = '\xFF';
+        int n, oc1, oc2;
         if(read(tty_fd, &ch1, 1) == 0 || (ch1 & 0xC0) != 0x80)
             return 0; // INVALID UTF-8
-        return get_dos_char(((ch & 0x1F) << 6) | (ch1 & 0x3F));
+        n = get_dos_char(((ch & 0x1F) << 6) | (ch1 & 0x3F), &oc1, &oc2);
+        if (n == 0)
+            return -1;
+        if (n == 2)
+            prev_key = oc2;
+        return oc1;
     }
     else if((ch & 0xF0) == 0xE0)
     {
         char ch1 = '\xFF', ch2 = '\xFF';
+        int n, oc1, oc2;
         if(read(tty_fd, &ch1, 1) == 0 || (ch1 & 0xC0) != 0x80 ||
            read(tty_fd, &ch2, 1) == 0 || (ch2 & 0xC0) != 0x80)
             return -1; // INVALID UTF-8
-        return get_dos_char(((ch & 0x0F) << 12) | ((ch1 & 0x3F) << 6) | (ch2 & 0x3F));
+        n = get_dos_char(((ch & 0x0F) << 12) | ((ch1 & 0x3F) << 6) | (ch2 & 0x3F), &oc1, &oc2);
+        if (n == 0)
+            return -1;
+        if (n == 2)
+            prev_key = oc2;
+        return oc1;
     }
     else if((ch & 0xF8) == 0xF0)
     {
         char ch1 = '\xFF', ch2 = '\xFF', ch3 = '\xFF';
+        int n, oc1, oc2;
         if(read(tty_fd, &ch1, 1) == 0 || (ch1 & 0xC0) != 0x80 ||
            read(tty_fd, &ch2, 1) == 0 || (ch2 & 0xC0) != 0x80 ||
            read(tty_fd, &ch3, 1) == 0 || (ch3 & 0xC0) != 0x80)
             return -1; // INVALID UTF-8
-        return get_dos_char(((ch & 0x07) << 18) | ((ch1 & 0x3F) << 12) |
-                            ((ch2 & 0x3F) << 6) | (ch3 & 0x3F));
+        n = get_dos_char(((ch & 0x07) << 18) | ((ch1 & 0x3F) << 12) |
+                         ((ch2 & 0x3F) << 6) | (ch3 & 0x3F),
+                         &oc1, &oc2);
+        if (n == 0)
+            return -1;
+        if (n == 2)
+            prev_key = oc2;
+        return oc1;
     }
     else
         return 0; // INVALID UTF-8

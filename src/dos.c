@@ -33,6 +33,9 @@ static uint8_t *nls_country_info;
 static uint32_t dos_sysvars;
 static uint32_t dos_append;
 
+// Codepage Data
+extern uint8_t *cp_dbcs;
+
 // Last error - used to implement "get extended error"
 static uint8_t dos_error;
 
@@ -833,6 +836,29 @@ static void dos_get_drive_info(uint8_t drive)
     cpuClrFlag(cpuFlag_CF);
 }
 
+static void fputc_unicode(uint8_t ch, FILE* fd)
+{
+    static int in_dbcs = 0;
+    if (ch < 0x20)
+        in_dbcs = 0;
+    if (!in_dbcs && ch < 0x80)
+        fputc(ch, fd);
+    else {
+        uint16_t uc = get_unicode(ch, NULL);
+        uint8_t buf[5];
+        uint8_t *p = buf;
+        if(uc == 0) {
+            in_dbcs = 1;
+            return;
+        }
+        unicode_to_utf8(&p, uc);
+        *p = '\0';
+        fputs((char *)buf, fd);
+        fflush(fd);
+        in_dbcs = 0;
+    }
+}
+
 // Writes a character to standard output.
 static void dos_putchar(uint8_t ch, int fd)
 {
@@ -848,13 +874,15 @@ static void dos_putchar(uint8_t ch, int fd)
         else
             video_putch(ch);
     }
+    else if(devinfo[fd] == 0x80D3)
+        fputc_unicode(ch, handles[fd]);
     else if(!handles[fd])
-        putchar(ch);
+        fputc_unicode(ch, stdout);
     else if(!fd && devinfo[0] == 0x80D3 && devinfo[1] == 0x80D3)
         // DOS programs can write to STDIN and expect output to the terminal.
         // This hack will only work if STDOUT is not redirected, in real DOS
         // you can redirect STDOUT and write to STDIN.
-        fputc(ch, handles[1]);
+        fputc_unicode(ch, handles[1]);
     else
         fputc(ch, handles[fd]);
 }
@@ -1615,6 +1643,9 @@ void intr21(void)
     case 0x30: // DOS version: 3.30
         cpuSetAX(dosver);
         cpuSetBX(0x0001);
+        break;
+    case 0x32: // get Drive Parameter Block
+        cpuSetAL(0xFF); // return as Network drive
         break;
     case 0x33: // BREAK SETTINGS
         if(ax == 0x3300)
@@ -2622,14 +2653,23 @@ static void init_nls_data(void)
     putmem(nls_collating_table + 2, collating_table, 256);
 
     // Double-byte-chars table
-    nls_dbc_set_table = get_static_memory(4, 0);
-    put16(nls_dbc_set_table, 0); // Length
-    put16(nls_dbc_set_table, 0); // one entry at least.
+    int dbcs_num;
+    for (dbcs_num = 0; dbcs_num < 4; dbcs_num++) {
+        if (cp_dbcs[dbcs_num*2] == 0 && cp_dbcs[dbcs_num*2+1] == 0)
+            break;
+    }
+    nls_dbc_set_table = get_static_memory(dbcs_num*2+2, 0);
+    for (int i = 0; i < dbcs_num; i++) {
+        put8(nls_dbc_set_table+i*2, cp_dbcs[i*2]);
+        put8(nls_dbc_set_table+i*2+1, cp_dbcs[i*2+1]);
+    }
+    put16(nls_dbc_set_table+dbcs_num*2, 0);
 }
 
 void init_dos(int argc, char **argv)
 {
     char args[256], environ[4096];
+    int conv_args = 0;
     memset(args, 0, 256);
     memset(environ, 0, sizeof(environ));
 
@@ -2640,6 +2680,20 @@ void init_dos(int argc, char **argv)
 
     // frees the find-first-list on exit
     atexit(free_find_first_dta);
+
+    // Set filename mode
+    if(getenv(ENV_FILENAME))
+    {
+        const char *mode = getenv(ENV_FILENAME);
+        if(strcasecmp(mode, "8bit") == 0) {
+            conv_args = 1;
+            dosname_mode(DOSNAME_8BIT);
+        }
+        else if(strcasecmp(mode, "dbcs") == 0) {
+            conv_args = 1;
+            dosname_mode(DOSNAME_DBCS);
+        }
+    }
 
     // Init DOS version
     if(getenv(ENV_DOSVER))
@@ -2747,7 +2801,24 @@ void init_dos(int argc, char **argv)
     {
         if(i != 1)
             p = addstr(p, " ", 127 - (p - args));
-        p = addstr(p, argv[i], 127 - (p - args));
+        if(conv_args) {
+            const uint8_t *s = (const uint8_t *)argv[i];
+            while (*s && 127 - (p - args) > 0) {
+                int c1, c2, unicode, n;
+                unicode = utf8_to_unicode(&s);
+                n = get_dos_char(unicode, &c1, &c2);
+                if (n == 1) {
+                    *p++ = c1;
+                }
+                else if (n == 2) {
+                    if (127 - (p - args) <= 2)
+                        break;
+                    *p++ = c1; *p++ = c2;
+                }
+            }
+        }
+        else
+            p = addstr(p, argv[i], 127 - (p - args));
     }
     *p = 0;
 
@@ -2758,7 +2829,24 @@ void init_dos(int argc, char **argv)
     {
         if(!strncmp("PATH=", argv[i], 5) || !strcmp("PATH", argv[i]))
             have_path = 1;
-        p = addstr(p, argv[i], environ + sizeof(environ) - 2 - p);
+        if(conv_args) {
+            const uint8_t *s = (const uint8_t *)argv[i];
+            while (*s && environ + sizeof(environ) - 2 - p > 0) {
+                int c1, c2, unicode, n;
+                unicode = utf8_to_unicode(&s);
+                n = get_dos_char(unicode, &c1, &c2);
+                if (n == 1) {
+                    *p++ = c1;
+                }
+                else if (n == 2) {
+                    if (environ + sizeof(environ) - 2 - p <= 2)
+                        break;
+                    *p++ = c1; *p++ = c2;
+                }
+            }
+        }
+        else
+            p = addstr(p, argv[i], environ + sizeof(environ) - 2 - p);
         *p = 0;
         p++;
     }

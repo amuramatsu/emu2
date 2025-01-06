@@ -6,6 +6,14 @@
 
 #include <stdint.h>
 
+// Set dosnames mode
+enum DOSNAME_MODE {
+    DOSNAME_7BIT,
+    DOSNAME_8BIT,
+    DOSNAME_DBCS
+};
+void dosname_mode(enum DOSNAME_MODE m);
+
 // Converts a DOS full path to equivalent Unix filename
 // If the file exists, returns the name of the file.
 // If the file does not exists, and "force" is true, returns the possible lowercase name.

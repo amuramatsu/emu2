@@ -1,6 +1,6 @@
 SHELL=/bin/sh
 CFLAGS?=-O3 -DEMS_SUPPORT
-LDLIBS?=-lm
+LDLIBS?=-liconv -lm
 INSTALL?=install
 PREFIX?=/usr
 
@@ -55,7 +55,7 @@ obj/dos.o: src/dos.c src/dos.h src/codepage.h src/dbg.h src/os.h \
  src/dosnames.h src/emu.h src/env.h src/keyb.h src/loader.h \
  src/timer.h src/utils.h src/video.h src/ems.h
 obj/dosnames.o: src/dosnames.c src/dosnames.h src/dbg.h src/os.h src/emu.h \
- src/env.h
+ src/env.h src/codepage.h
 obj/keyb.o: src/keyb.c src/keyb.h src/codepage.h src/dbg.h src/os.h src/emu.h
 obj/loader.o: src/loader.c src/loader.h src/dbg.h src/os.h src/emu.h
 obj/main.o: src/main.c src/dbg.h src/os.h src/dos.h src/dosnames.h src/emu.h \

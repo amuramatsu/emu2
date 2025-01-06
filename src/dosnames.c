@@ -5,17 +5,29 @@
 #include "dbg.h"
 #include "emu.h"
 #include "env.h"
+#include "codepage.h"
 #include <dirent.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
 
+static enum DOSNAME_MODE mode;
+void dosname_mode(enum DOSNAME_MODE m)
+{
+    mode = m;
+}
+
 // DOS directory entries.
 // Functions to open/search files.
 
-static char dos_valid_char(char c)
+static char dos_valid_char(char c, int *dos_valid_char_in_dbcs)
 {
+    if(mode == DOSNAME_DBCS && *dos_valid_char_in_dbcs)
+    {
+        *dos_valid_char_in_dbcs = 0;
+        return c;
+    }
     if(c >= '0' && c <= '9')
         return c;
     if(c >= 'A' && c <= 'Z')
@@ -24,8 +36,18 @@ static char dos_valid_char(char c)
        c == '(' || c == ')' || c == '-' || c == '@' || c == '^' || c == '_' || c == '{' ||
        c == '}' || c == '~')
         return c;
+    if(mode == DOSNAME_DBCS && check_dbcs_1st(c))
+    {
+        *dos_valid_char_in_dbcs = 1;
+        return c;
+    }
     if(c >= 'a' && c <= 'z')
         return c - 'a' + 'A';
+    if(mode == DOSNAME_8BIT || mode == DOSNAME_DBCS)
+    {
+        if ((unsigned char)c >= 0xa0 && (unsigned char)c < 0xff)
+            return c;
+    }
     return 0;
 }
 
@@ -34,14 +56,53 @@ static int unix_to_dos(uint8_t *d, const char *u)
 {
     int dot;
     int k;
+    int in_dbcs = 0;
+
+    uint8_t *buffer = malloc(strlen(u) * 2 + 1);
+    if(buffer)
+    {
+        uint8_t *dst = buffer;
+        while(*u)
+        {
+            uint8_t c = *(uint8_t *)u;
+            if(c < 128)
+                *dst++ = *u++;
+            else if(c >= 0xf0) {
+                *dst++ = '~';
+                for (int i=0; i<4 && *u; u++)
+                    /*NOP*/;
+            }
+            else {
+                uint16_t unicode = utf8_to_unicode((const uint8_t **)&u);
+                if(unicode) {
+                    int n, c1, c2;
+                    n = get_dos_char(unicode, &c1, &c2);
+                    if (n == 1)
+                        *dst++ = c1;
+                    else if (n == 2) {
+                        *dst++ = c1;
+                        *dst++ = c2;
+                    }
+                }
+                else {
+                    *dst++ = '~';
+                    break;
+                }
+            }
+        }
+        *dst = '\0';
+        u = (char *)buffer;
+    }
+
     for(k = 0; *u && *u != '.' && k < 8; k++, u++, d++)
     {
-        char c = dos_valid_char(*u);
+        char c = dos_valid_char(*u, &in_dbcs);
         if(c)
             *d = c;
         else
             *d = '~';
     }
+    in_dbcs = 0;
     dot = k;
     // Search dot
     while(*u && *u != '.')
@@ -53,13 +114,15 @@ static int unix_to_dos(uint8_t *d, const char *u)
         u++;
         for(k = 0; *u && k < 3; k++, u++, d++)
         {
-            char c = dos_valid_char(*u);
+            char c = dos_valid_char(*u, &in_dbcs);
             if(c)
                 *d = c;
             else
                 *d = '~';
         }
     }
+    if(buffer)
+        free(buffer);
     return dot;
 }
 
@@ -90,10 +153,12 @@ static int dos_unix_sort(const struct dirent **s1, const struct dirent **s2)
 {
     const char *n1 = (*s1)->d_name;
     const char *n2 = (*s2)->d_name;
+    int in_dbcs1 = 0;
+    int in_dbcs2 = 0;
     for(;; n1++, n2++)
     {
-        char c1 = dos_valid_char(*n1);
-        char c2 = dos_valid_char(*n2);
+        char c1 = dos_valid_char(*n1, &in_dbcs1);
+        char c2 = dos_valid_char(*n2, &in_dbcs2);
         if(c1 && c1 == c2)
             continue;
         if(*n1 && *n1 == *n2)
@@ -129,32 +194,43 @@ static int dos_unix_sort(const struct dirent **s1, const struct dirent **s2)
 // GLOB
 static int dos_glob(const uint8_t *n, const char *g)
 {
+    int in_dbcs_g = 0;
+    int in_dbcs_n = 0;
     while(*n && *g)
     {
         char cg = *g, cn = *n;
         // An '*' consumes any letter, except the dot
-        if(cg == '*')
+        if(!in_dbcs_g && cg == '*')
         {
             // Special case "." and ".."
-            if(cn == '.' && (n[1] != '.' && n[1] != 0))
+            if(!in_dbcs_n && cn == '.' && (n[1] != '.' && n[1] != 0))
                 g++;
             else
                 n++;
             continue;
         }
         // An '?' consumes one letter, except the dot
-        if(cg == '?')
+        if(!in_dbcs_g && cg == '?')
         {
             g++;
-            if(cn != '.')
+            if(!in_dbcs_n && cn != '.')
                 n++;
             continue;
         }
         // Convert letters to uppercase
-        if(cg >= 'a' && cg <= 'z')
+        if(!in_dbcs_g && cg >= 'a' && cg <= 'z')
             cg = cg - 'a' + 'A';
-        if(cn >= 'a' && cn <= 'z')
+        if(!in_dbcs_n && cn >= 'a' && cn <= 'z')
             cn = cn - 'a' + 'A';
+        // DBCS check
+        if(in_dbcs_g)
+            in_dbcs_g = 0;
+        else if(mode == DOSNAME_DBCS && check_dbcs_1st(cg))
+            in_dbcs_g = 1;
+        if(in_dbcs_n)
+            in_dbcs_n = 0;
+        else if(mode == DOSNAME_DBCS && check_dbcs_1st(cn))
+            in_dbcs_n = 1;
         // Consume equal letters or '?'
         if(cg == cn)
         {
@@ -164,6 +240,8 @@ static int dos_glob(const uint8_t *n, const char *g)
         }
         return 0;
     }
+    if(mode == DOSNAME_DBCS && in_dbcs_g)
+        return 0;
     // Consume extra '*', '?' and '.'
     while(*g == '*' || *g == '?' || *g == '.')
         g++;
@@ -335,21 +413,40 @@ static char *dos_unix_name(const char *path, const char *dosN, int force)
     struct stat st;
     const char *bpath = strcmp(path, "/") ? path : "";
     // Allocate a buffer big enough
-    char *ret = malloc(strlen(bpath) + strlen(dosN) + 2);
+    char *ret = malloc(strlen(bpath) + strlen(dosN)*3 + 2);
     if(!ret)
         return 0;
-    if(-1 == sprintf(ret, "%s/%s", bpath, dosN)) {
+    if(-1 == sprintf(ret, "%s/", bpath)) {
         free(ret);
         return 0;
+    }
+    {
+        const uint8_t *src = (const uint8_t *)dosN;
+        uint8_t *dst = (uint8_t *)(ret + strlen(ret));
+        while (*src) {
+            int uc = get_unicode(*src++, NULL);
+            if (uc == 0)
+                /*NOP*/;
+            else
+                unicode_to_utf8(&dst, uc);
+        }
+        *dst = '\0';
     }
     if(0 == stat(ret, &st))
         return ret;
     // See if 'dosN' has glob patterns, and exists in that case,
     // so we don't expand path if it contains '*' or '?' chars
     const char *s;
+    int in_dbcs = 0;
     for(s = dosN; *s; s++)
-        if(*s == '?' || *s == '*')
+    {
+        if(in_dbcs)
+            in_dbcs = 0;
+        else if(check_dbcs_1st(*s))
+            in_dbcs = 1;
+        else if(*s == '?' || *s == '*')
             return ret;
+    }
     // Try converting to uppercase...
     str_ucase(ret + strlen(bpath));
     if(0 == stat(ret, &st))
@@ -623,7 +720,7 @@ char *dos_unix_path(int addr, int force, const char *append)
         return strdup("/dev/tty");
 #ifdef EMS_SUPPORT
     if(use_ems && *path && (!strcasecmp(path, "EMMXXXX0") ||
-		 !strcasecmp(path + 1, ":EMMXXXX0")))
+                 !strcasecmp(path + 1, ":EMMXXXX0")))
         return strdup("/dev/null");
 #endif
     // Try to convert
@@ -658,18 +755,20 @@ char *dos_unix_path_fcb(int addr, int force, const char *append)
     // Build filename from FCB
     char filename[13];
     int opos = 0;
+    int in_dbcs = 0;
 
     for(int pos = 0; pos < 8 && opos < 13; pos++, opos++)
         if(fcb_name[pos] == '?')
             filename[opos] = '?';
-        else if(0 == (filename[opos] = dos_valid_char(fcb_name[pos])))
+        else if(0 == (filename[opos] = dos_valid_char(fcb_name[pos], &in_dbcs)))
             break;
-    if(opos < 63 && (dos_valid_char(fcb_name[8]) || fcb_name[8] == '?'))
+    if(opos < 63 && (dos_valid_char(fcb_name[8], &in_dbcs) || fcb_name[8] == '?'))
         filename[opos++] = '.';
+    in_dbcs = 0;
     for(int pos = 8; pos < 11 && opos < 63; pos++, opos++)
         if(fcb_name[pos] == '?')
             filename[opos] = '?';
-        else if(0 == (filename[opos] = dos_valid_char(fcb_name[pos])))
+        else if(0 == (filename[opos] = dos_valid_char(fcb_name[pos], &in_dbcs)))
             break;
     filename[opos] = 0;
 
@@ -700,6 +799,7 @@ static struct dos_file_list *find_first_file(char *fspec, int label, int dirs)
 {
     // Now, separate the path to the spec
     char *glob, *unixpath, *p = strrchr(fspec, '/');
+    char *buffer = NULL;
     if(!p)
     {
         glob = fspec;
@@ -711,12 +811,37 @@ static struct dos_file_list *find_first_file(char *fspec, int label, int dirs)
         glob = p + 1;
         unixpath = fspec;
     }
+    if(mode == DOSNAME_DBCS || mode == DOSNAME_8BIT)
+    {
+        buffer = malloc(strlen(glob)*3 + 1);
+        const uint8_t *src = (const uint8_t *)glob;
+        uint8_t *dst = (uint8_t *)buffer;
+        while(*src) {
+            int unicode = utf8_to_unicode(&src);
+            if(unicode) {
+                int n, c1, c2;
+                n = get_dos_char(unicode, &c1, &c2);
+                if (n == 1)
+                    *dst++ = c1;
+                else if (n == 2) {
+                    *dst++ = c1;
+                    *dst++ = c2;
+                }
+            }
+            else {
+                *dst++ = '*';
+            }
+        }
+        *dst = '\0';
+        glob = buffer;
+    }
     debug(debug_dos, "\tfind_first '%s' at '%s'\n", glob, unixpath);
 
     // Read the directory using the given GLOB
     struct dos_file_list *dirEntries = dos_read_dir(unixpath, glob, label, dirs);
     free(fspec);
-
+    if(buffer)
+        free(buffer);
     return dirEntries;
 }
 
