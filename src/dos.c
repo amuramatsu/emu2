@@ -2107,7 +2107,7 @@ void intr21(void)
                 cpuClrFlag(cpuFlag_CF);
             }
         }
-        else if((ax & 0xFF) == 0)
+        else if(!getenv(ENV_EXEC_SAME) && (ax & 0xFF) == 0)
         {
             debug(debug_dos, "\texec: '%s'\n", fname);
             // Get executable file name:
@@ -2147,7 +2147,7 @@ void intr21(void)
                 cpuClrFlag(cpuFlag_CF);
             }
         }
-        else if((ax & 0xFF) == 1)
+        else if((ax & 0xFF) == 0 || (ax & 0xFF) == 1)
         {
             debug(debug_dos, "load: '%s'\n", fname);
             int cur_psp = get_current_PSP();
@@ -2209,33 +2209,57 @@ void intr21(void)
                 print_error("error loading EXE/COM file.\n");
             fclose(f);
 
-            // Push AX
-            put16(cpuGetAddress(cpuGetSS(), cpuGetSP()-2), cpuGetAX());
-            
-            // Save SS:SP & CS:IP
-            put16(pb+14, cpuGetSP()-2);
-            put16(pb+16, cpuGetSS());
-            put16(pb+18, cpuGetIP());
-            put16(pb+20, cpuGetCS());
-
-            // Restore regs
-            cpuSetCX(saveCX);
-            cpuSetSI(saveSI);
-            cpuSetDI(saveDI);
-            cpuSetBP(saveBP);
-            cpuSetSP(saveSP);
-            cpuSetIP(saveIP);
-            cpuSetCS(saveCS);
-            cpuSetDS(saveDS);
-            cpuSetES(saveES);
-            cpuSetSS(saveSS);
-            
             // Set parent PSP to the current one
             put16(cpuGetAddress(psp_mcb+1, 22), cur_psp);
             set_current_PSP(psp_mcb+1);
 
-            cpuClrFlag(cpuFlag_CF);
-            cpuSetAX(0);
+            if((ax & 0xFF) == 0)  // Load and Exec
+            {
+                // Init DTA
+                dosDTA = get_current_PSP() * 16 + 0x80;
+
+                // Init DOS flags
+                cpuSetFlag(cpuFlag_IF);
+                cpuClrFlag(cpuFlag_DF);
+                cpuClrFlag(cpuFlag_TF);
+
+                // Push Flags, IP and CS
+                uint16_t flags = 0x0200;
+                put16(cpuGetAddress(cpuGetSS(), cpuGetSP()-2), flags);
+                put16(cpuGetAddress(cpuGetSS(), cpuGetSP()-4), cpuGetCS());
+                put16(cpuGetAddress(cpuGetSS(), cpuGetSP()-6), cpuGetIP());
+                cpuSetSP(cpuGetSP()-6);
+
+                // restore IP & CS
+                cpuSetIP(saveIP);
+                cpuSetCS(saveCS);
+            }
+            else                  // Load only
+            {
+                // Push AX
+                put16(cpuGetAddress(cpuGetSS(), cpuGetSP()-2), cpuGetAX());
+
+                // Save SS:SP & CS:IP
+                put16(pb+14, cpuGetSP()-2);
+                put16(pb+16, cpuGetSS());
+                put16(pb+18, cpuGetIP());
+                put16(pb+20, cpuGetCS());
+
+                // Restore regs
+                cpuSetCX(saveCX);
+                cpuSetSI(saveSI);
+                cpuSetDI(saveDI);
+                cpuSetBP(saveBP);
+                cpuSetSP(saveSP);
+                cpuSetIP(saveIP);
+                cpuSetCS(saveCS);
+                cpuSetDS(saveDS);
+                cpuSetES(saveES);
+                cpuSetSS(saveSS);
+
+                cpuClrFlag(cpuFlag_CF);
+                cpuSetAX(0);
+            }
         }
         else
         {

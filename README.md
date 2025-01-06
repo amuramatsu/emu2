@@ -99,6 +99,11 @@ The available environment variables are:
                        about upper/lower cases) or "dbcs" (DBCS file names are
                        supported with 8-bit charactors.) Default is "7bit."
 
+- `EMU2_EXEC_SAMEPROC` In default, intr 21h exec function (ax=4b00) is execute
+                       MS-DOS file in other emulator process. If this variable
+                       is set, emu2 exec MS-DOS binary in same emulator process
+                       like as real MS-DOS.
+
 Simple Example
 --------------
 
