@@ -64,6 +64,14 @@ static uint32_t get_static_memory(uint16_t bytes, uint16_t align)
     return current - bytes;
 }
 
+// Execute PSP stacks
+struct exec_PSP {
+    struct exec_PSP *next;
+    int psp;
+    int parent;
+};
+struct exec_PSP *exec_psp_root = NULL;
+
 // DOS file handles
 #define max_handles (0x10000)
 static FILE *handles[max_handles];
@@ -2235,6 +2243,12 @@ void intr21(void)
                 // restore IP & CS
                 cpuSetIP(saveIP);
                 cpuSetCS(saveCS);
+
+                struct exec_PSP *ep = malloc(sizeof(struct exec_PSP));
+                ep->next = exec_psp_root;
+                ep->psp = get_current_PSP();
+                ep->parent = cur_psp;
+                exec_psp_root = ep;
             }
             else                  // Load only
             {
@@ -2278,73 +2292,90 @@ void intr21(void)
     case 0x31: // Terminate and Stay Resident
     case 0x4C: // EXIT
     {
-        uint16_t parent_psp = get16(cpuGetAddress(get_current_PSP(), 22));
         int copied_only_psp = 0;
+        do {
+            copied_only_psp = 0;
+            uint16_t parent_psp = get16(cpuGetAddress(get_current_PSP(), 22));
 
-        // Detect if our PSP is last one
-        debug(debug_dos, "\texit PSP:'%04x', PARENT:%04x.\n",
-              get_current_PSP(), parent_psp);
-        if ((ax & 0xff00) == 0x0000)
-            ax = 0x4c00;
-        if(0xFFFE == parent_psp)
-            exit(ax & 0xFF);
-        else
-        {
-            // Exit to parent
-            // TODO: we must close all child file descriptors and deallocate
-            //       child memory.
-            return_code = cpuGetAX() & 0xFF;
-
-            uint8_t *psp_p = getptr(cpuGetAddress(get_current_PSP(), 0), 0x100);
-            uint8_t *ppsp_p = getptr(cpuGetAddress(parent_psp, 0), 0x100);
-            if(!memcmp(psp_p+0x0e, ppsp_p+0x0e, 8) &&
-               !memcmp(psp_p+0x18, ppsp_p+0x18, 22) &&
-               !memcmp(psp_p+0x32, ppsp_p+0x32, 0x80-0x32))
-            {
-                copied_only_psp = 1;
-                debug(debug_dos, "\t\t-> simply copied\n");
-            }
-
-            // Patch INT 22h, 23h and 24h addresses to the ones saved in new PSP
-            if(!copied_only_psp)
-            {
-                put16(0x88, get16(cpuGetAddress(get_current_PSP(), 10)));
-                put16(0x8A, get16(cpuGetAddress(get_current_PSP(), 12)));
-                put16(0x8C, get16(cpuGetAddress(get_current_PSP(), 14)));
-                put16(0x8E, get16(cpuGetAddress(get_current_PSP(), 16)));
-                put16(0x90, get16(cpuGetAddress(get_current_PSP(), 18)));
-                put16(0x92, get16(cpuGetAddress(get_current_PSP(), 20)));
-            }
-            if((ax & 0xff00) == 0x3100) // TSR
-            {
-                int resize = cpuGetDX() & 0xffff;
-                if(resize < 0x06)
-                    resize = 0x06;
-                mem_resize_segment(get_current_PSP()-1, resize);
-                return_code |= 0x300;
-            }
+            // Detect if our PSP is last one
+            debug(debug_dos, "\texit PSP:'%04x', PARENT:%04x.\n",
+                  get_current_PSP(), parent_psp);
+            if ((ax & 0xff00) == 0x0000)
+                ax = 0x4c00;
+            if(0xFFFE == parent_psp)
+                exit(ax & 0xFF);
             else
             {
-                // Deallocate child memory
-                mem_free_owned(get_current_PSP());
-                // Close all files
-                dos_close_allfile_owned(get_current_PSP());
-            }
-            // Set PSP to parent
-            set_current_PSP(parent_psp);
+                // Exit to parent
+                return_code = cpuGetAX() & 0xFF;
 
-            // Get last stack
-            if(!copied_only_psp)
-            {
-                cpuSetSS(get16(cpuGetAddress(get_current_PSP(), 0x30)));
-                cpuSetSP(get16(cpuGetAddress(get_current_PSP(), 0x2E)));
-            }
+                // Check this PSP is only copied
+                uint8_t *psp_p =
+                    getptr(cpuGetAddress(get_current_PSP(), 0), 0x100);
+                uint8_t *ppsp_p =
+                    getptr(cpuGetAddress(parent_psp, 0), 0x100);
+                if((ax & 0xff00) == 0x4c00 &&
+                   get_current_PSP() != parent_psp &&
+                   !memcmp(psp_p+0x0e, ppsp_p+0x0e, 8) &&
+                   !memcmp(psp_p+0x18, ppsp_p+0x18, 22) &&
+                   !memcmp(psp_p+0x32, ppsp_p+0x32, 0x80-0x32))
+                {
+                    copied_only_psp = 1;
+                    debug(debug_dos, "\t\t-> simply copied\n");
+                }
 
-            // get return address (this is not needed)
-            //cpuSetIP(get16(0x22 * 4));
-            //cpuSetCS(get16(0x22 * 4 + 2));
-            // And exit!
-        }
+                // Patch INT 22h, 23h and 24h addresses to the ones saved in new PSP
+                if(!copied_only_psp)
+                {
+                    put16(0x88, get16(cpuGetAddress(get_current_PSP(), 10)));
+                    put16(0x8A, get16(cpuGetAddress(get_current_PSP(), 12)));
+                    put16(0x8C, get16(cpuGetAddress(get_current_PSP(), 14)));
+                    put16(0x8E, get16(cpuGetAddress(get_current_PSP(), 16)));
+                    put16(0x90, get16(cpuGetAddress(get_current_PSP(), 18)));
+                    put16(0x92, get16(cpuGetAddress(get_current_PSP(), 20)));
+                }
+                if((ax & 0xff00) == 0x3100) // TSR
+                {
+                    int resize = cpuGetDX() & 0xffff;
+                    if(resize < 0x06)
+                        resize = 0x06;
+                    mem_resize_segment(get_current_PSP()-1, resize);
+                    return_code |= 0x300;
+                }
+                else
+                {
+                    // Deallocate child memory
+                    mem_free_owned(get_current_PSP());
+                    // Close all files
+                    dos_close_allfile_owned(get_current_PSP());
+                }
+
+                // Set PSP to parent
+                if(get_current_PSP() == parent_psp)
+                {
+                    if(!exec_psp_root)
+                    {
+                        debug(debug_dos, "\texec_PSP is empty\n");
+                        exit(ax & 0xFF);
+                    }
+                    if(exec_psp_root->psp == get_current_PSP())
+                    {
+                        struct exec_PSP *ep = exec_psp_root;
+                        debug(debug_dos, "\tpop exec_PSP count\n");
+                        exec_psp_root = ep->next;
+                        parent_psp = ep->parent;
+                    }
+                }
+                set_current_PSP(parent_psp);
+
+                // Get last stack
+                if(!copied_only_psp)
+                {
+                    cpuSetSS(get16(cpuGetAddress(get_current_PSP(), 0x30)));
+                    cpuSetSP(get16(cpuGetAddress(get_current_PSP(), 0x2E)));
+                }
+            }
+        } while (copied_only_psp);
         break;
     }
     case 0x4D: // GET RETURN CODE (ERRORLEVEL)
