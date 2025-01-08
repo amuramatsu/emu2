@@ -698,6 +698,7 @@ uint16_t create_PSP(const char *cmdline, const char *environment, uint16_t env_s
         if(l > 63)
             l = 63;
         memcpy(memory + env_seg * 16 + env_size + 2, progname, l);
+        *(memory + env_seg * 16 + env_size + 2 + l) = '\0';
     }
     cmdline_to_fcb(cmdline, dosPSP + 0x5C, dosPSP + 0x6C);
     return psp_mcb;
