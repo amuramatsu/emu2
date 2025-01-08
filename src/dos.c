@@ -69,6 +69,13 @@ struct exec_PSP {
     struct exec_PSP *next;
     int psp;
     int parent;
+    int parent_ax;
+    int parent_cx;
+    int parent_si;
+    int parent_di;
+    int parent_bp;
+    int parent_ds;
+    int parent_es;
 };
 struct exec_PSP *exec_psp_root = NULL;
 
@@ -2245,10 +2252,33 @@ void intr21(void)
                 cpuSetCS(saveCS);
 
                 struct exec_PSP *ep = malloc(sizeof(struct exec_PSP));
+                debug(debug_dos, "\tpush exec_PSP count\n");
                 ep->next = exec_psp_root;
                 ep->psp = get_current_PSP();
                 ep->parent = cur_psp;
+                ep->parent_ax = ax;
+                ep->parent_cx = saveCX;
+                ep->parent_si = saveSI;
+                ep->parent_di = saveDI;
+                ep->parent_bp = saveBP;
+                ep->parent_ds = saveDS;
+                ep->parent_es = saveES;
                 exec_psp_root = ep;
+
+                // restore standard IO
+                if(!handles[0])
+                    handles[0] = stdin;
+                if(!handles[1])
+                    handles[1] = stdout;
+                    handles[1] = stdout;
+                if(!handles[2])
+                    handles[2] = stderr;
+                if(!handles[3])
+                    handles[3] = stderr;
+                if(!handles[4])
+                    handles[4] = stderr;
+                for(int i = 0; i < 3; i++)
+                    devinfo[i] = guess_devinfo(handles[i]);
             }
             else                  // Load only
             {
@@ -2310,15 +2340,8 @@ void intr21(void)
                 return_code = cpuGetAX() & 0xFF;
 
                 // Check this PSP is only copied
-                uint8_t *psp_p =
-                    getptr(cpuGetAddress(get_current_PSP(), 0), 0x100);
-                uint8_t *ppsp_p =
-                    getptr(cpuGetAddress(parent_psp, 0), 0x100);
-                if((ax & 0xff00) == 0x4c00 &&
-                   get_current_PSP() != parent_psp &&
-                   !memcmp(psp_p+0x0e, ppsp_p+0x0e, 8) &&
-                   !memcmp(psp_p+0x18, ppsp_p+0x18, 22) &&
-                   !memcmp(psp_p+0x32, ppsp_p+0x32, 0x80-0x32))
+                if(exec_psp_root == NULL ||
+                   get_current_PSP() != exec_psp_root->psp)
                 {
                     copied_only_psp = 1;
                     debug(debug_dos, "\t\t-> simply copied\n");
@@ -2351,20 +2374,25 @@ void intr21(void)
                 }
 
                 // Set PSP to parent
-                if(get_current_PSP() == parent_psp)
+                if(!exec_psp_root && parent_psp == get_current_PSP())
                 {
-                    if(!exec_psp_root)
-                    {
-                        debug(debug_dos, "\texec_PSP is empty\n");
-                        exit(ax & 0xFF);
-                    }
-                    if(exec_psp_root->psp == get_current_PSP())
-                    {
-                        struct exec_PSP *ep = exec_psp_root;
-                        debug(debug_dos, "\tpop exec_PSP count\n");
-                        exec_psp_root = ep->next;
-                        parent_psp = ep->parent;
-                    }
+                    debug(debug_dos, "\texec_PSP is empty\n");
+                    exit(ax & 0xFF);
+                }
+                if(exec_psp_root->psp == get_current_PSP())
+                {
+                    struct exec_PSP *ep = exec_psp_root;
+                    debug(debug_dos, "\tpop exec_PSP count\n");
+                    exec_psp_root = ep->next;
+                    parent_psp = ep->parent;
+                    cpuSetDS(ep->parent_ax);
+                    cpuSetDS(ep->parent_cx);
+                    cpuSetDS(ep->parent_si);
+                    cpuSetDS(ep->parent_di);
+                    cpuSetDS(ep->parent_bp);
+                    cpuSetDS(ep->parent_ds);
+                    cpuSetES(ep->parent_es);
+                    free(ep);
                 }
                 set_current_PSP(parent_psp);
 
