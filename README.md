@@ -4,6 +4,20 @@ EMU2: A simple text-mode x86 + DOS emulator
 This is a simple DOS emulator for the Linux text console, supporting basic DOS
 system calls and console I/O.
 
+Some extended features are implemented from
+[dmsc's original version](https://github.com/dmsc/emu2.git).
+
+* LIM-EMS 4.0.
+* DBCS codepage support.  
+  Some applications ([VZEditor](https://github.com/vcraftjp/VZEditor), FD,
+  MIEL, FILMNT, LHMNT..) can work on this with `EMU2_CODEPAGE=932`.
+  DBCS filenames are also supported.
+* Load and exec (ah=4B00h) and loading only (ah=4B01h) are implemented as real MS-DOS.   
+  Some debuggers like as TurboC++ IDE, [Enhanced DEBUG](https://pcdosretro.gitlab.io/enhdebug.htm)
+  are working with debuggee without any options.
+  If you want to use batch file which contains some TSRs and applications, you can use 
+  [FreeCOM](https://github.com/FDOS/freecom) with environment variable `EMU2_EXEC_SAMEPROC=1`.
+
 Installation
 ------------
 
