@@ -1,4 +1,3 @@
-
 #define _GNU_SOURCE
 
 #include "dosnames.h"
@@ -758,7 +757,7 @@ char *dos_unix_path_fcb(int addr, int force, const char *append)
     int in_dbcs = 0;
 
     for(int pos = 0; pos < 8 && opos < 13; pos++, opos++)
-        if(fcb_name[pos] == '?')
+        if(in_dbcs == 0 && fcb_name[pos] == '?')
             filename[opos] = '?';
         else if(0 == (filename[opos] = dos_valid_char(fcb_name[pos], &in_dbcs)))
             break;
@@ -766,7 +765,7 @@ char *dos_unix_path_fcb(int addr, int force, const char *append)
         filename[opos++] = '.';
     in_dbcs = 0;
     for(int pos = 8; pos < 11 && opos < 63; pos++, opos++)
-        if(fcb_name[pos] == '?')
+        if(in_dbcs == 0 && fcb_name[pos] == '?')
             filename[opos] = '?';
         else if(0 == (filename[opos] = dos_valid_char(fcb_name[pos], &in_dbcs)))
             break;
