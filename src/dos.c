@@ -52,13 +52,13 @@ static unsigned dosDTA;
 static unsigned dosver = 0x1E03;
 
 // Allocates memory for static DOS tables, from "rom" memory
-static uint32_t get_static_memory(uint16_t bytes, uint16_t align)
+uint32_t get_static_memory(uint16_t bytes, uint16_t align)
 {
-    static uint32_t current = 0xFE000; // Start allocating at F000:0000
+    static uint32_t current = 0xFE000; // Start allocating at FE00:0000
     // Align
     if(align)
         current = (current + align - 1) & ~(align - 1);
-    if(current + bytes >= 0xFF0000)
+    if(current + bytes >= 0xFF000)
         print_error("not enough static DOS memory\n");
     current += bytes;
     return current - bytes;

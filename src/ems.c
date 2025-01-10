@@ -10,14 +10,16 @@ int use_ems = 0;
 
 #define EMS_MAXHANDLES  255
 #define EMS_PAGESIZE    (16*1024)
-#define EMS_HEADER_SEG  (EMS_PAGEFRAME_SEG + 0x1000)
 
 static unsigned ems_maxpages;
 static unsigned ems_freepages;
 static unsigned ems_handle_cnt;
+static uint16_t ems_header_seg;
 
 #define EMS_ADDR_BEGIN  (EMS_PAGEFRAME_SEG << 4)
 #define EMS_ADDR_END    (EMS_ADDR_BEGIN + 0x10000)
+
+extern uint32_t get_static_memory(uint16_t bytes, uint16_t align);
 
 enum EMM_STATUS {
     EMM_STATUS_SUCCESS = 0x00,
@@ -159,10 +161,11 @@ init_ems(int pages)
     ems_freepages = ems_maxpages = pages;
 
     // Install INT 67 handler for EMS check
-    uint32_t ems_header_addr =  (EMS_HEADER_SEG << 4);
-    memcpy(memory + ems_header_addr, ems_header, sizeof ems_header);
+    uint32_t pos = get_static_memory(sizeof ems_header, 16);
+    ems_header_seg = pos >> 4;
+    memcpy(memory + pos, ems_header, sizeof ems_header);
     put16(0x67*4, 0x18);
-    put16(0x67*4+2, EMS_HEADER_SEG);
+    put16(0x67*4+2, ems_header_seg);
     
     use_ems = 1;
 }
@@ -224,7 +227,7 @@ intr67(void)
     // IP check (call return)
     uint16_t ip = cpuGetIP();
     uint16_t cs = cpuGetCS();
-    if (cs == EMS_HEADER_SEG && ip == 0x0022) {
+    if (cs == ems_header_seg && ip == 0x0022) {
         ems_map = ems_call_save_map;
         set_emm_result(ax, EMM_STATUS_SUCCESS);
         return;
@@ -777,7 +780,7 @@ intr67(void)
                 ems_map = tmp;
                 uint16_t sp = cpuGetSP();
                 put16(cpuGetAddrSS(sp - 2), 0x20);
-                put16(cpuGetAddrSS(sp - 4), EMS_HEADER_SEG);
+                put16(cpuGetAddrSS(sp - 4), ems_header_seg);
                 cpuSetSP(sp - 4);
                 cpuSetCS(target_seg);
                 cpuSetIP(target_off);
