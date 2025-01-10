@@ -109,31 +109,31 @@ static void term_get_size(void)
 static void update_posxy(void)
 {
     int vid_size = vid_sy > 25 ? 0x20 : 0x10;
-    memory[0x44C] = 0x00;
-    memory[0x44D] = vid_size;
-    memory[0x44E] = 0x00;
-    memory[0x44F] = (vid_size * vid_page) & 0x7F;
+    put8(0x44C, 0x00);
+    put8(0x44D, vid_size);
+    put8(0x44E, 0x00);
+    put8(0x44F, (vid_size * vid_page) & 0x7F);
     for(int i = 0; i < 8; i++)
     {
-        memory[0x450 + i * 2] = vid_posx[i];
-        memory[0x451 + i * 2] = vid_posy[i];
+        put8(0x450 + i * 2, vid_posx[i]);
+        put8(0x451 + i * 2, vid_posy[i]);
     }
-    memory[0x462] = vid_page;
+    put8(0x462, vid_page);
     crtc_cursor_loc = vid_posx[vid_page] + vid_posy[vid_page] * vid_sx;
 }
 
 static void reload_posxy(int page)
 {
-    vid_posx[page] = memory[0x450 + page * 2];
-    vid_posy[page] = memory[0x451 + page * 2];
+    vid_posx[page] = get8(0x450 + page * 2);
+    vid_posy[page] = get8(0x451 + page * 2);
 }
 
 static void reload_posxy_all(void)
 {
     for(int i = 0; i < 8; i++)
     {
-        vid_posx[i] = memory[0x450 + i * 2];
-        vid_posy[i] = memory[0x451 + i * 2];
+        vid_posx[i] = get8(0x450 + i * 2);
+        vid_posy[i] = get8(0x451 + i * 2);
     }
 }
 
@@ -175,8 +175,8 @@ static void set_text_mode(int clear)
         vid_posy[i] = 0;
     }
     // Get current scan lines from the configuration registers
-    int ega = memory[0x488] & 1;
-    int vga = memory[0x489] & 0x10;
+    int ega = get8(0x488) & 1;
+    int vga = get8(0x489) & 0x10;
     if(!ega)
         vid_scan_lines = 200; // CGA
     else if(!vga)
@@ -191,22 +191,22 @@ static void set_text_mode(int clear)
     vid_sy = 25;
     vid_font_lines = vid_scan_lines / vid_sy;
     // Fill memory block
-    memory[0x449] = 0x03;                             // video mode
-    memory[0x44A] = vid_sx;                           // screen columns
-    memory[0x44B] = 0;                                // ...
+    put8(0x449, 0x03);                                // video mode
+    put8(0x44A, vid_sx);                              // screen columns
+    put8(0x44B, 0);                                   // ...
     update_posxy();                                   // Updates 0x4C to 0x5F and 0x62
-    memory[0x460] = 0x07;                             // cursor end scan line
-    memory[0x461] = 0x06;                             // cursor start scan line
-    memory[0x463] = 0xD4;                             // I/O port of video CRTC
-    memory[0x464] = 0x03;                             // ...
-    memory[0x465] = 0x29;                             // video mode select reg
-    memory[0x466] = 0x30;                             // CGA palette select
-    memory[0x484] = vid_sy - 1;                       // screen rows - 1
-    memory[0x485] = vid_font_lines;                   // character font height
-    memory[0x486] = 0;                                // ...
-    memory[0x487] = clear ? 0x60 : 0xE0;              // EGA control
-    memory[0x488] = 0x09;                             // EGA switches
-    memory[0x489] = !ega ? 0xC1 : !vga ? 0x41 : 0x51; // MODE set option control
+    put8(0x460, 0x07);                                // cursor end scan line
+    put8(0x461, 0x06);                                // cursor start scan line
+    put8(0x463, 0xD4);                                // I/O port of video CRTC
+    put8(0x464, 0x03);                                // ...
+    put8(0x465, 0x29);                                // video mode select reg
+    put8(0x466, 0x30);                                // CGA palette select
+    put8(0x484, vid_sy - 1);                          // screen rows - 1
+    put8(0x485, vid_font_lines);                      // character font height
+    put8(0x486, 0);                                   // ...
+    put8(0x487, clear ? 0x60 : 0xE0);                 // EGA control
+    put8(0x488, 0x09);                                // EGA switches
+    put8(0x489, !ega ? 0xC1 : !vga ? 0x41 : 0x51);    // MODE set option control
 }
 
 static unsigned get_last_used_row(void)
@@ -295,26 +295,26 @@ static void vid_set_font(unsigned lines)
     // Set new mode:
     vid_sy = rows;
     vid_font_lines = lines;
-    memory[0x484] = vid_sy - 1;
-    memory[0x485] = vid_font_lines;
-    memory[0x486] = 0;
+    put8(0x484, vid_sy - 1);
+    put8(0x485, vid_font_lines);
+    put8(0x486, 0);
     update_posxy();
 }
 
 void video_init_mem(void)
 {
     // Fill the functionality table
-    memory[0xC0100] = 0x08; // Only mode 3 supported
-    memory[0xC0101] = 0x00;
-    memory[0xC0102] = 0x00;
-    memory[0xC0107] = 0x07; // Support 300, 350 and 400 scanlines
-    memory[0xC0108] = 0x00; // Active character blocks?
-    memory[0xC0109] = 0x00; // MAximum character blocks?
-    memory[0xC0108] = 0xFF; // Support functions
+    put8(0xC0100, 0x08);    // Only mode 3 supported
+    put8(0xC0101, 0x00);
+    put8(0xC0102, 0x00);
+    put8(0xC0107, 0x07);    // Support 300, 350 and 400 scanlines
+    put8(0xC0108, 0x00);    // Active character blocks?
+    put8(0xC0109, 0x00);    // MAximum character blocks?
+    put8(0xC0108, 0xFF);    // Support functions
 
     // Need to setup VGA/EGA/CGA registers before calling set_text_mode:
-    memory[0x488] = 9;    // No CGA emulation
-    memory[0x489] = 0x10; // VGA, 400 lines
+    put8(0x488, 9);         // No CGA emulation
+    put8(0x489, 0x10);      // VGA, 400 lines
     // Set video mode and clear screen
     set_text_mode(1);
     // Setup non-standard mode:
@@ -818,14 +818,14 @@ void intr10(void)
         if((cpuGetCX() & 0x6000) == 0x2000) // Hide cursor
         {
             vid_cursor = 0;
-            memory[0x460] = 0;
-            memory[0x461] = 0;
+            put8(0x460, 0);
+            put8(0x461, 0);
         }
         else
         {
             vid_cursor = 1;
-            memory[0x460] = 7;
-            memory[0x461] = 6;
+            put8(0x460, 7);
+            put8(0x461, 6);
         }
         break;
     case 0x02: // SET CURSOR POS
@@ -923,8 +923,8 @@ void intr10(void)
         break;
     }
     case 0x0F: // GET CURRENT VIDEO MODE
-        cpuSetAX(memory[0x449] | (memory[0x487] & 0x80) | (memory[0x44A] << 8));
-        cpuSetBX((memory[0x462] << 8) | (0xFF & cpuGetBX()));
+        cpuSetAX(get8(0x449) | (get8(0x487) & 0x80) | (get8(0x44A) << 8));
+        cpuSetBX((get8(0x462) << 8) | (0xFF & cpuGetBX()));
         break;
     case 0x10:
         if(ax == 0x1002) // TODO: Set palette registers - ignore
@@ -963,7 +963,7 @@ void intr10(void)
         if(bl == 0x10) // GET EGA INFO
         {
             cpuSetBX(0x0003);
-            cpuSetCX(memory[0x488]);
+            cpuSetCX(get8(0x488));
             cpuSetAX(0);
         }
         else if(bl == 0x30) // SET VERTICAL RESOLUTION
@@ -972,20 +972,20 @@ void intr10(void)
             if(ax == 0x1200)
             {
                 // 200 lines:
-                memory[0x488] &= 0xFE;
-                memory[0x489] = (memory[0x489] & 0x6F) | 0x80;
+                put8(0x488, get8(0x488) & 0xFE);
+                put8(0x489, (get8(0x489) & 0x6F) | 0x80);
             }
             else if(ax == 0x1201)
             {
                 // 350 lines:
-                memory[0x488] |= 0x01;
-                memory[0x489] = (memory[0x489] & 0x6F) | 0x00;
+                put8(0x488, get8(0x488) | 0x01);
+                put8(0x489, (get8(0x489) & 0x6F) | 0x00);
             }
             else if(ax == 0x1202)
             {
                 // 400 lines:
-                memory[0x488] |= 0x01;
-                memory[0x489] = (memory[0x489] & 0x6F) | 0x10;
+                put8(0x488, get8(0x488) | 0x01);
+                put8(0x489, (get8(0x489) & 0x6F) | 0x10);
             }
             else
             {
@@ -1017,7 +1017,7 @@ void intr10(void)
         {
             while(cnt && addr < 0xFFFFF)
             {
-                video_putchar(memory[addr], memory[addr + 1], page);
+                video_putchar(get8(addr), get8(addr + 1), page);
                 addr += 2;
                 cnt--;
             }
@@ -1027,7 +1027,7 @@ void intr10(void)
             uint8_t at = cpuGetBX() >> 8;
             while(cnt && addr <= 0xFFFFF)
             {
-                video_putchar(memory[addr], at, page);
+                video_putchar(get8(addr), at, page);
                 addr++;
                 cnt--;
             }
@@ -1055,23 +1055,25 @@ void intr10(void)
                                 : vid_scan_lines <= 400 ? 2
                                                         : 3;
                 // Store state information
-                memset(memory + addr, 0, 64);
-                memory[addr + 0] = 0x00; // static-func table at C000:0100
-                memory[addr + 1] = 0x01; // ...
-                memory[addr + 2] = 0x00; // ...
-                memory[addr + 3] = 0xC0; // ...
+                for(int i=0; i<64; i++)
+                    put8(addr + i, 0);
+                put8(addr + 0, 0x00);    // static-func table at C000:0100
+                put8(addr + 1, 0x01);    // ...
+                put8(addr + 2, 0x00);    // ...
+                put8(addr + 3, 0xC0);    // ...
                 // First 30 bytes copied from BIOS memory 40h:49h to 40h:66h
-                memcpy(memory + addr + 4, memory + 0x449, 30);
-                memory[addr + 34] = vid_sy;              // # of rows
-                memory[addr + 35] = vid_font_lines;      // # of scan lines in font
-                memory[addr + 36] = 0;                   //
-                memory[addr + 37] = 8;                   // combination code, analog VGA
-                memory[addr + 38] = 0;                   //
-                memory[addr + 39] = 0x10;                //
-                memory[addr + 40] = 0x00;                // # of colors: 0010
-                memory[addr + 41] = vid_sy > 25 ? 4 : 8; // # of pages
-                memory[addr + 42] = scan_code;           // # of scan-lines
-                memory[addr + 49] = 3;                   // 256k memory
+                for(int i=0; i<30; i++)
+                    put8(addr + 4 + i, get8(0x449 + i));
+                put8(addr + 34, vid_sy);                 // # of rows
+                put8(addr + 35, vid_font_lines);         // # of scan lines in font
+                put8(addr + 36, 0);                      //
+                put8(addr + 37, 8);                      // combination code, analog VGA
+                put8(addr + 38, 0);                      //
+                put8(addr + 39, 0x10);                   //
+                put8(addr + 40, 0x00);                   // # of colors: 0010
+                put8(addr + 41, vid_sy > 25 ? 4 : 8);    // # of pages
+                put8(addr + 42, scan_code);              // # of scan-lines
+                put8(addr + 49, 3);                      // 256k memory
                 cpuSetAX(0x1B1B);
             }
         }

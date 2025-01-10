@@ -30,7 +30,7 @@
 #include "misc_inst.h"
 #include "ia32/inst_table.h"
 
-#include <pccore.h>
+//#include <pccore.h>
 
 #ifdef USE_SSE2
 #include "ia32/instructions/sse2/sse2.h"
@@ -174,7 +174,8 @@ _CPUID(void)
 			UINT32 clkMHz;
 			char cpu_brandstringbuf[64] = {0};
 			int stroffset = (CPU_EAX - 0x80000002) * 16;
-			clkMHz = pccore.realclock/1000/1000;
+			//clkMHz = pccore.realclock/1000/1000;
+			clkMHz = 100;
 			sprintf(cpu_brandstringbuf, "%s%u MHz", i386cpuid.cpu_brandstring, clkMHz);
 			CPU_EAX = LOADINTELDWORD(((UINT8*)(cpu_brandstringbuf + stroffset + 0)));
 			CPU_EBX = LOADINTELDWORD(((UINT8*)(cpu_brandstringbuf + stroffset + 4)));

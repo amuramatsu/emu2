@@ -24,7 +24,7 @@
  */
 
 #include <compiler.h>
-#include <pccore.h>
+//#include <pccore.h>
 #include <ia32/cpu.h>
 #include "ia32/ia32.mcr"
 #include "ia32/inst_table.h"

@@ -85,6 +85,7 @@ ia32_init(void)
 	resolve_init();
 }
 
+#if 0
 void
 ia32_setextsize(UINT32 size)
 {
@@ -190,7 +191,7 @@ ia32_setemm(UINT frame, UINT32 addr) {
 	}
 	CPU_EMSPTR[frame] = ptr;
 }
-
+#endif
 
 /*
  * モード遷移

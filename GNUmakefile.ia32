@@ -1,19 +1,17 @@
 # -*- makefile-gmake -*-
-TARGET=emu2
+TARGET=emu2-ia32
 SHELL=/bin/sh
-CFLAGS?=-O3 -DEMS_SUPPORT
+CFLAGS?=-O3 -DEMS_SUPPORT -DIA32
 LDLIBS?=-liconv -lm
 INSTALL?=install
 PREFIX?=/usr
-OBJDIR=obj
+OBJDIR=obj.ia32
 
 include platform.mk
 
 OBJS=\
  codepage.o\
- cpu.o\
  dbg.o\
- dis.o\
  dosnames.o\
  dos.o\
  keyb.o\
@@ -28,17 +26,19 @@ OBJS=\
 all: $(TARGET)
 
 $(TARGET): $(OBJS:%=$(OBJDIR)/%)
-	$(CC) -o $@ $^ $(LDFLAGS) $(LDLIBS)
+	(cd src/i386c && ./mk_depend.sh && $(MAKE))
+	$(CC) -o $@ $^ $(LDFLAGS) -L./src/i386c -lia32 $(LDLIBS)
 
-$(OBJDIR)/%.o: src/%.c | obj
+$(OBJDIR)/%.o: src/%.c | $(OBJDIR)
 	$(CC) $(CFLAGS) -c -o $@ $<
-obj:
-	mkdir -p obj
+$(OBJDIR):
+	mkdir -p $(OBJDIR)
 
 .PHONY: clean distclean
 clean distclean:
 	rm -f .test.c .test.out $(OBJS:%=$(OBJDIR)/%) $(TARGET)
-	test -d obj && rmdir obj || true
+	(cd src/i386c && $(MAKE) clean)
+	test -d $(OBJDIR) && rmdir $(OBJDIR) || true
 
 .PHONY: install
 install: $(TARGET)
@@ -51,20 +51,14 @@ uninstall:
 
 # Generated with gcc -MM src/*.c
 $(OBJDIR)/codepage.o: src/codepage.c src/codepage.h src/dbg.h src/os.h src/env.h
-$(OBJDIR)/cpu.o: src/cpu.c src/cpu.h src/dbg.h src/os.h src/dis.h src/emu.h \
- src/ems.h
+$(OBJDIR)/cpu.o: src/cpu.c src/cpu.h src/dbg.h src/os.h src/dis.h src/emu.h src/ems.h
 $(OBJDIR)/dbg.o: src/dbg.c src/dbg.h src/os.h src/env.h src/version.h
-$(OBJDIR)/dis.o: src/dis.c src/dis.h src/emu.h src/ems.h
-$(OBJDIR)/dos.o: src/dos.c src/dos.h src/codepage.h src/dbg.h src/os.h \
- src/dosnames.h src/emu.h src/env.h src/keyb.h src/loader.h \
- src/timer.h src/utils.h src/video.h src/ems.h
-$(OBJDIR)/dosnames.o: src/dosnames.c src/dosnames.h src/dbg.h src/os.h \
- src/emu.h src/env.h src/codepage.h
-$(OBJDIR)/keyb.o: src/keyb.c src/keyb.h src/codepage.h src/dbg.h src/os.h \
- src/emu.h
+$(OBJDIR)/dosnames.o: src/dosnames.c src/dosnames.h src/dbg.h src/os.h src/emu.h \
+ src/env.h src/codepage.h
+$(OBJDIR)/keyb.o: src/keyb.c src/keyb.h src/codepage.h src/dbg.h src/os.h src/emu.h
 $(OBJDIR)/loader.o: src/loader.c src/loader.h src/dbg.h src/os.h src/emu.h
-$(OBJDIR)/main.o: src/main.c src/dbg.h src/os.h src/dos.h src/dosnames.h \
- src/emu.h src/keyb.h src/timer.h src/video.h src/ems.h
+$(OBJDIR)/main.o: src/main.c src/dbg.h src/os.h src/dos.h src/dosnames.h src/emu.h \
+ src/keyb.h src/timer.h src/video.h src/ems.h
 $(OBJDIR)/timer.o: src/timer.c src/timer.h src/dbg.h src/os.h src/emu.h
 $(OBJDIR)/utils.o: src/utils.c src/utils.h src/dbg.h src/os.h
 $(OBJDIR)/video.o: src/video.c src/video.h src/codepage.h src/dbg.h src/os.h \

@@ -63,7 +63,7 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 /*----------------------------------------------------------------------------
 *----------------------------------------------------------------------------*/
-#ifndef _MSC_VER
+#if !defined(_MSC_VER) && !defined(__NO_INLINE__)
 #define SOFTFLOAT_BUILTIN_CLZ 1
 #include "opts-GCC.h"
 #endif

@@ -1,4 +1,6 @@
 emu2
+emu2-ia32
 obj/
+obj.ia32/
 .test.c
 .test.out

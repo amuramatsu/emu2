@@ -27,10 +27,16 @@
 #include "cpu.h"
 #include "ia32.mcr"
 
-#include <pccore.h>
-#include <io/iocore.h>
-#include <mem/dmax86.h>
-#include <bios/bios.h>
+void emu2_cpu_debugout(const char *, ...);
+#ifdef VERBOSE
+#undef VERBOSE
+#define VERBOSE(s) emu2_cpu_debugout s
+#endif
+
+//#include <pccore.h>
+//#include <io/iocore.h>
+//#include <mem/dmax86.h>
+//#include <bios/bios.h>
 
 #include <ia32/instructions/fpu/fp.h>
 
@@ -133,12 +139,12 @@ ia32(void)
 		VERBOSE(("ia32: return from unknown cause"));
 		break;
 	}
-	if (!CPU_TRAP && !dmac.working) {
+	if (!CPU_TRAP /*&& !dmac.working*/) {
 		exec_allstep();
 	}else if (!CPU_TRAP) {
 		do {
 			exec_1step();
-			dmax86();
+			//dmax86();
 		} while (CPU_REMCLOCK > 0);
 	}else{
 		do {
@@ -147,12 +153,13 @@ ia32(void)
 				CPU_DR6 |= CPU_DR6_BS;
 				INTERRUPT(1, INTR_TYPE_EXCEPTION);
 			}
-			dmax86();
+			//dmax86();
 		} while (CPU_REMCLOCK > 0);
 	}
 
 }
 
+extern void emu2_hook(void);
 void
 ia32_step(void)
 {
@@ -174,14 +181,15 @@ ia32_step(void)
 	}
 
 	do {
+		emu2_hook();
 		exec_1step();
 		if (CPU_TRAP) {
 			CPU_DR6 |= CPU_DR6_BS;
 			INTERRUPT(1, INTR_TYPE_EXCEPTION);
 		}
-		if (dmac.working) {
-			dmax86();
-		}
+		//if (dmac.working) {
+		//	dmax86();
+		//}
 	} while (CPU_REMCLOCK > 0);
 }
 //#pragma optimize("", on)
@@ -282,6 +290,7 @@ ia32_printf(const char *str, ...)
 void
 ia32_bioscall(void)
 {
+#if 0
 	UINT32 adrs;
 
 	if (!CPU_STAT_PM || CPU_STAT_VM86) {
@@ -307,4 +316,5 @@ ia32_bioscall(void)
 		}
 #endif
 	}
+#endif
 }

@@ -24,7 +24,7 @@
  */
 
 #include <compiler.h>
-#include <dosio.h>
+//#include <dosio.h>
 #include "cpu.h"
 #include "ia32.mcr"
 
@@ -55,6 +55,11 @@ double np2cpu_lastTimingValue = 1.0;
 
 sigjmp_buf exec_1step_jmpbuf;
 
+void emu2_cpu_debugout(const char *, ...);
+#ifdef VERBOSE
+#undef VERBOSE
+#define VERBOSE(s) emu2_cpu_debugout s
+#endif
 #if defined(IA32_INSTRUCTION_TRACE)
 typedef struct {
 	CPU_REGS		regs;

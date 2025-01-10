@@ -26,7 +26,7 @@
 #include <compiler.h>
 #include <ia32/cpu.h>
 #include "ia32/ia32.mcr"
-#include <pccore.h>
+//#include <pccore.h>
 
 #include "system_inst.h"
 

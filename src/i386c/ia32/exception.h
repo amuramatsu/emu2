@@ -61,7 +61,7 @@ enum {
 };
 
 #define	EXCEPTION(num, vec) \
-	exception(num, vec);
+	exception(num, vec)
 #define	INTERRUPT(num, softintp) \
 	interrupt(num, softintp, 0, 0)
 
