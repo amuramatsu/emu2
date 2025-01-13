@@ -945,6 +945,16 @@ static int run_emulator(char *file, const char *prgname, char *cmdline, char *en
         setenv(ENV_DEF_DRIVE, drv, 1);
         // and CWD
         setenv(ENV_CWD, (const char *)dos_get_cwd(0), 1);
+        // fix filename
+        const char *mode = getenv(ENV_FILENAME);
+        if(strcasecmp(mode, "8bit") == 0 || strcasecmp(mode, "dbcs") == 0)
+        {
+            char m[32];
+            strcpy(m, mode);
+            strcat(m, "-noconvargs");
+            setenv(ENV_FILENAME, m, 1);
+        }
+
         // pass open file descriptors to child process
         for(unsigned i = 0; i < 3; i++)
             if(handles[i])
@@ -2809,6 +2819,14 @@ void init_dos(int argc, char **argv)
         }
         else if(strcasecmp(mode, "dbcs") == 0) {
             conv_args = 1;
+            dosname_mode(DOSNAME_DBCS);
+        }
+        else if(strcasecmp(mode, "8bit-noconvargs") == 0) {
+            conv_args = 0;
+            dosname_mode(DOSNAME_8BIT);
+        }
+        else if(strcasecmp(mode, "dbcs-noconvargs") == 0) {
+            conv_args = 0;
             dosname_mode(DOSNAME_DBCS);
         }
     }
