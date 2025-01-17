@@ -88,7 +88,43 @@ void cpuClrStartupFlag(enum cpuFlags flag);
 #endif
 
 // Helper functions to access memory
+#ifdef IA32
+
+// Read 8 bit number
+void meml_write8(uint32_t address, uint8_t value);
+#define put8(addr, v)   meml_write8(addr, v)
+
 // Read 16 bit number
+void meml_write16(uint32_t address, uint16_t value);
+#define put16(addr, v)  meml_write16(addr, v)
+
+// Read 32 bit number
+void meml_write32(uint32_t address, uint32_t value);
+#define put32(addr, v)  meml_write32(addr, v)
+
+// Read 32 bit number
+void meml_writes(uint32_t address, const void *dat, unsigned int leng);
+
+// Write 8 bit number
+uint8_t meml_read8(uint32_t address);
+#define get8(addr)      meml_read8(addr)
+
+// Write 16 bit number
+uint16_t meml_read16(uint32_t address);
+#define get16(addr)      meml_read16(addr)
+
+// Write 32 bit number
+uint32_t meml_read32(uint32_t address);
+#define get32(addr)      meml_read32(addr)
+
+// Write mem block
+void meml_reads(uint32_t address, void *dat, unsigned int leng);
+
+int check_limit(uint32_t size, uint32_t dest);
+
+#else // not IA32
+
+// Read 8 bit number
 static inline void put8(int addr, int v)
 {
 #ifdef EMS_SUPPORT
@@ -137,6 +173,11 @@ static inline unsigned get32(int addr)
     return get16(addr) + (get16(addr + 2) << 16);
 }
 
+#define check_limit(s, d) \
+    ((s) >= 0x100000 || (d) >= 0x100000 || (s) + (d) >= 0x100000)
+
+#endif // IA32
+
 // Push word to stack
 static inline void cpuPushWord(uint16_t w)
 {
@@ -155,7 +196,7 @@ static inline int cpuPopWord(void)
 // Copy data to CPU memory
 static inline int putmem(uint32_t dest, const uint8_t *src, unsigned size)
 {
-    if(size >= 0x100000 || dest >= 0x100000 || size + dest >= 0x100000)
+    if(check_limit(size, dest))
         return 1;
 #ifdef EMS_SUPPORT
     if (in_ems_pageframe(dest)) {
@@ -165,14 +206,19 @@ static inline int putmem(uint32_t dest, const uint8_t *src, unsigned size)
 	return 0;
     }
 #endif
+#ifdef IA32
+    meml_writes(dest, src, size);
+#else
     memcpy(memory + dest, src, size);
+#endif
     return 0;
 }
 
+#ifndef IA32 // getptr is not supported at IA32
 // Get pointer to CPU memory or null if overflow
 static inline uint8_t *getptr(uint32_t addr, unsigned size)
 {
-    if(size >= 0x100000 || addr >= 0x100000 || size + addr >= 0x100000)
+    if(check_limit(size, addr))
         return 0;
 #ifdef EMS_SUPPORT
     if (in_ems_pageframe(addr))
@@ -180,6 +226,7 @@ static inline uint8_t *getptr(uint32_t addr, unsigned size)
 #endif
     return memory + addr;
 }
+#endif
 
 // Get a copy of CPU memory forcing a nul byte at end.
 // Four static buffers are used, so at most 4 results can be in use.
@@ -200,8 +247,14 @@ static inline char *getstr(uint32_t addr, unsigned size)
     }
     else
 #endif
-    if(size < 255 && addr < 0x100000 && size + addr < 0x100000)
+    if(size < 255 && !check_limit(addr, size))
+    {
+#ifdef IA32
+        meml_reads(addr, buf[cbuf], size);
+#else
         memcpy(buf[cbuf], memory + addr, size);
+#endif
+    }
     return buf[cbuf];
 }
 

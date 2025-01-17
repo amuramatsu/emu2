@@ -150,7 +150,7 @@ void bios_routine(unsigned inum)
         uint16_t ip = cpuGetStack(0);
         uint16_t cs = cpuGetStack(2);
         print_error("error, unimplemented opcode %02X at cs:ip = %04X:%04X\n",
-                    memory[cpuGetAddress(cs, ip)], cs, ip);
+                    get8(cpuGetAddress(cs, ip)), cs, ip);
     }
     else if(inum == 0x28)
         intr28();
@@ -195,10 +195,10 @@ static void check_exit_mem(void)
 
     for(unsigned i = 0; i < chk_mem_len; i++)
     {
-        if(chk_mem_arr[i] != memory[i])
+        if(chk_mem_arr[i] != get8(i))
         {
             fprintf(stderr, "%s: check memory: differ at byte %X, %02X != %02X\n",
-                    prog_name, i, chk_mem_arr[i], memory[i]);
+                    prog_name, i, chk_mem_arr[i], get8(i));
             break;
         }
     }
@@ -220,20 +220,20 @@ static void init_bios_mem(void)
     // Some of those are also in video.c, we write a
     // default value here for programs that don't call
     // INT10 functions before reading.
-    memory[0x413] = 0x80; // ram size: 640k
-    memory[0x414] = 0x02; //
+    put8(0x413, 0x80); // ram size: 640k
+    put8(0x414, 0x02); //
     // Store an "INT-19h" instruction in address FFFF:0000
-    memory[0xFFFF0] = 0xCB;
-    memory[0xFFFF1] = 0x19;
+    put8(0xFFFF0, 0xCB);
+    put8(0xFFFF1, 0x19);
     // BIOS date at F000:FFF5
-    memory[0xFFFF5] = 0x30;
-    memory[0xFFFF6] = 0x31;
-    memory[0xFFFF7] = 0x2F;
-    memory[0xFFFF8] = 0x30;
-    memory[0xFFFF9] = 0x31;
-    memory[0xFFFFA] = 0x2F;
-    memory[0xFFFFB] = 0x31;
-    memory[0xFFFFC] = 0x37;
+    put8(0xFFFF5, 0x30);
+    put8(0xFFFF6, 0x31);
+    put8(0xFFFF7, 0x2F);
+    put8(0xFFFF8, 0x30);
+    put8(0xFFFF9, 0x31);
+    put8(0xFFFFA, 0x2F);
+    put8(0xFFFFB, 0x31);
+    put8(0xFFFFC, 0x37);
 
     update_timer();
 }

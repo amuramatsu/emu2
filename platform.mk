@@ -27,6 +27,14 @@ ifneq "$(findstring clang,$(CC))" ""
  GCC_CLANG=1
 endif
 
+# Endian check
+LITTLE_ENDIAN=$(shell printf I|od -to2|awk '{print substr($$2,6,1); exit}')
+ifeq ($(LITTLE_ENDIAN),1)
+ CFLAGS+=-DBYTESEX_LITTLE
+else
+ CFLAGS+=-DBYTESEX_BIG
+endif
+
 # Detect if GCC (or Clang) needs `-std=gnu99`
 ifeq ($(GCC_CLANG),1)
  C99_WR:=$(shell printf '%s\n' \

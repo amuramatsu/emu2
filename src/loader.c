@@ -400,7 +400,7 @@ static void cmdline_to_fcb(const char *cmd_line, uint8_t *fcb1, uint8_t *fcb2)
 // Mem handling
 static void mcb_new(uint16_t mcb, uint16_t owner, uint16_t size, int last)
 {
-    memory[mcb * 16 + 0] = last ? 'Z' : 'M';
+    put8(mcb * 16 + 0, last ? 'Z' : 'M');
     put16(mcb * 16 + 1, owner);
     put16(mcb * 16 + 3, size);
     debug(debug_dos, "\tmcb_new: mcb:$%04X type:%c owner:$%04X size:$%04X\n", mcb,
@@ -429,12 +429,12 @@ static void mcb_set_owner(uint16_t mcb, uint16_t owner)
 
 static uint16_t mcb_ok(uint16_t mcb)
 {
-    return memory[mcb * 16] == 'Z' || memory[mcb * 16] == 'M';
+    return get8(mcb * 16) == 'Z' || get8(mcb * 16) == 'M';
 }
 
 static int mcb_is_last(uint16_t mcb)
 {
-    return memory[mcb * 16] == 'Z';
+    return get8(mcb * 16) == 'Z';
 }
 
 static uint16_t mcb_next(uint16_t mcb)
@@ -446,7 +446,7 @@ static uint16_t mcb_next(uint16_t mcb)
 
 static void mcb_set_last(uint16_t mcb, int last)
 {
-    memory[mcb * 16 + 0] = last ? 'Z' : 'M';
+    put8(mcb * 16 + 0, last ? 'Z' : 'M');
 }
 
 static int mcb_is_free(uint16_t mcb)
@@ -650,7 +650,11 @@ uint16_t create_PSP(const char *cmdline, const char *environment, uint16_t env_s
     mcb_set_owner(env_mcb, psp_seg);
     mcb_set_owner(psp_mcb, psp_seg);
 
+#ifdef IA32
+    uint8_t dosPSP[256];
+#else
     uint8_t *dosPSP = memory + psp_seg * 16;
+#endif
     memset(dosPSP, 0, 256);
 
     dosPSP[0] = 0xCD;                   // 00: int20
@@ -688,7 +692,11 @@ uint16_t create_PSP(const char *cmdline, const char *environment, uint16_t env_s
     memcpy(dosPSP + 129, cmdline, l);   //
     dosPSP[129 + l] = 0x00d;            // Adds an ENTER at the end
     // Copy environment:
+#ifdef IA32
+    meml_writes(env_seg * 16, environment, env_size);
+#else
     memcpy(memory + env_seg * 16, environment, env_size);
+#endif
     // Then, a word == 1
     put16(env_seg * 16 + env_size, 1);
     // And the program name
@@ -697,10 +705,18 @@ uint16_t create_PSP(const char *cmdline, const char *environment, uint16_t env_s
         int l = strlen(progname);
         if(l > 63)
             l = 63;
+#ifdef IA32
+        meml_writes(env_seg * 16 + env_size + 2, progname, l);
+        put8(env_seg * 16 + env_size + 2 + l, 0);
+#else
         memcpy(memory + env_seg * 16 + env_size + 2, progname, l);
-        *(memory + env_seg * 16 + env_size + 2 + l) = '\0';
+        *(memory + env_seg * 16 + env_size + 2 + l) = 0;
+#endif
     }
     cmdline_to_fcb(cmdline, dosPSP + 0x5C, dosPSP + 0x6C);
+#ifdef IA32
+    meml_writes(psp_seg * 16, dosPSP, 256);
+#endif
     return psp_mcb;
 }
 
@@ -732,10 +748,18 @@ int dos_read_overlay(FILE *f, uint16_t load_seg, uint16_t reloc_seg)
 
         int mem = load_seg * 16;
         int max = 0x100000 - mem - 512;
-
         fseek(f, 0, SEEK_SET);
+#ifdef IA32
+        char *loadbuf = malloc(max);
+        if(!loadbuf)
+            return 1;
+        n = fread(loadbuf, 1, max, f);
+        if(n)
+            meml_writes(mem, loadbuf, n);
+        free(loadbuf);
+#else //not IA32
         n = fread(memory + mem, 1, max, f);
-
+#endif //IA32
         return n == 0;
     }
 
@@ -753,7 +777,17 @@ int dos_read_overlay(FILE *f, uint16_t load_seg, uint16_t reloc_seg)
 
     // Seek to start of data
     fseek(f, head_size, SEEK_SET);
+#ifdef IA32
+    char *loadbuf = malloc(data_size);
+    if(!loadbuf)
+        return 1;
+    n = fread(loadbuf, 1, data_size, f);
+    if(n == data_size)
+        meml_writes(load_seg * 16, loadbuf, n);
+    free(loadbuf);
+#else //not IA32
     n = fread(memory + load_seg * 16, 1, data_size, f);
+#endif //IA32
     debug(debug_dos, "\texe read %u of %u data bytes\n", n, data_size);
     if(n < data_size)
         return 1;
@@ -797,7 +831,17 @@ int dos_load_exe(FILE *f, uint16_t psp_mcb)
 
         int mem = (psp_mcb + 17) * 16;
         fseek(f, 0, SEEK_SET);
+#ifdef IA32
+        char *loadbuf = malloc(max);
+        if(!loadbuf)
+            return 0;
+        n = fread(loadbuf, 1, max, f);
+        if(n)
+            meml_writes(mem, loadbuf, n);
+        free(loadbuf);
+#else //not IA32
         n = fread(memory + mem, 1, max, f);
+#endif
         if(!n)
             return 0;
 
@@ -857,7 +901,17 @@ int dos_load_exe(FILE *f, uint16_t psp_mcb)
 
     // Seek to start of data and read
     fseek(f, head_size, SEEK_SET);
+#ifdef IA32
+    char *loadbuf = malloc(data_size);
+    if(!loadbuf)
+        return 1;
+    n = fread(loadbuf, 1, data_size, f);
+    if(n)
+        meml_writes(load_seg * 16, loadbuf, n);
+    free(loadbuf);
+#else //not IA32
     n = fread(memory + load_seg * 16, 1, data_size, f);
+#endif //IA32
     // Adjust data_size depending on extra_bytes
     if(extra_bytes)
         data_size = data_size - 512 + extra_bytes;

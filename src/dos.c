@@ -32,6 +32,7 @@ static uint32_t nls_dbc_set_table;
 static uint8_t *nls_country_info;
 static uint32_t dos_sysvars;
 static uint32_t dos_append;
+#define DOS_APPEND_SIZE 0x100
 
 // Codepage Data
 extern uint8_t *cp_dbcs;
@@ -42,7 +43,15 @@ static uint8_t dos_error;
 // Returns "APPEND" path, if activated:
 static const char *append_path(void)
 {
+#ifdef IA32
+    static char buf[DOS_APPEND_SIZE];
+    if ((get8(dos_append) & 0x01) == 0)
+        return 0;
+    meml_writes(dos_append + 2, buf, DOS_APPEND_SIZE);
+    return buf;
+#else
     return (memory[dos_append] & 0x01) ? ((char *)memory + dos_append + 2) : 0;
+#endif
 }
 
 // Disk Transfer Area, buffer for find-first-file output.
@@ -217,7 +226,7 @@ static int dos_open_file(int create, int access_mode, int name_addr)
         return 0;
     }
     char *fname = dos_unix_path(name_addr, create, append_path());
-    if(!memory[name_addr] || !fname)
+    if(!get8(name_addr) || !fname)
     {
         debug(debug_dos, "\t(file not found)\n");
         dos_error = 2;
@@ -291,9 +300,9 @@ static int dos_open_file(int create, int access_mode, int name_addr)
         devinfo[h] = 0x80C4;
     else if(!strcmp(fname, "/dev/tty"))
         devinfo[h] = 0x80D3;
-    else if(memory[name_addr + 1] == ':')
+    else if(get8(name_addr + 1) == ':')
     {
-        uint8_t c = memory[name_addr];
+        uint8_t c = get8(name_addr);
         c = (c >= 'a') ? c - 'a' : c - 'A';
         if(c > 26)
             c = dos_get_default_drive();
@@ -318,7 +327,7 @@ static int get_ex_fcb(void)
 static int get_fcb(void)
 {
     int fcb = cpuGetAddrDS(cpuGetDX());
-    return memory[fcb] == 255 ? fcb + 7 : fcb;
+    return get8(fcb) == 255 ? fcb + 7 : fcb;
 }
 
 static int get_fcb_handle(void)
@@ -336,8 +345,8 @@ static void dos_show_fcb(void)
     debug(debug_dos,
           "\tFCB:"
           "[d=%02x:n=%.8s.%.3s:bn=%04x:rs=%04x:fs=%08x:h=%04x:rn=%02x:ra=%08x]\n",
-          memory[addr], name, name + 8, get16(addr + 0x0C), get16(addr + 0x0E),
-          get32(addr + 0x10), get16(addr + 0x18), memory[addr + 0x20],
+          get8(addr), name, name + 8, get16(addr + 0x0C), get16(addr + 0x0E),
+          get32(addr + 0x10), get16(addr + 0x18), get8(addr + 0x20),
           get32(addr + 0x21));
 }
 
@@ -385,12 +394,12 @@ static void dos_open_file_fcb(int create)
     put16(fcb_addr + 0x14, 0);   // date of last write
     put16(fcb_addr + 0x16, 0);   // time of last write
     put16(fcb_addr + 0x18, h);   // reserved - store DOS handle!
-    memory[fcb_addr + 0x20] = 0; // current record
+    put8(fcb_addr + 0x20, 0);    // current record
     // Do not initialize random position - old DOS apps assume each FCB holds
     // up to 33 bytes.
 #if 0
     put16(fcb_addr + 0x21, 0);   // random position - only 3 bytes
-    memory[fcb_addr + 0x23] = 0;
+    put8(fcb_addr + 0x23, 0);
 #endif
 
     debug(debug_dos, "OK.\n");
@@ -404,13 +413,13 @@ static void dos_open_file_fcb(int create)
 static void dos_seq_to_rand_fcb(int fcb)
 {
     unsigned rsize = get16(0x0E + fcb);
-    unsigned recnum = memory[0x20 + fcb];
+    unsigned recnum = get8(0x20 + fcb);
     unsigned bnum = get16(0x0C + fcb);
     unsigned rand = recnum + 128 * bnum;
     put16(0x21 + fcb, rand & 0xFFFF);
-    memory[0x23 + fcb] = rand >> 16;
+    put8(0x23 + fcb, rand >> 16);
     if(rsize < 64)
-        memory[0x24 + fcb] = rand >> 24;
+        put8(0x24 + fcb, rand >> 24);
 }
 
 static int dos_rw_record_fcb(unsigned addr, int write, int update, int seq)
@@ -428,7 +437,7 @@ static int dos_rw_record_fcb(unsigned addr, int write, int update, int seq)
 
     if(seq)
     {
-        unsigned recnum = memory[0x20 + fcb];
+        unsigned recnum = get8(0x20 + fcb);
         unsigned bnum = get16(0x0C + fcb);
         pos = rsize * (recnum + 128 * bnum);
     }
@@ -437,18 +446,38 @@ static int dos_rw_record_fcb(unsigned addr, int write, int update, int seq)
     else
         pos = rsize * (0xFFFFFF & get32(0x21 + fcb));
 
-    uint8_t *buf = getptr(addr, rsize);
-#ifdef EMS_SUPPORT
+    uint8_t *buf = NULL;
+#if defined(EMS_SUPPORT) || defined(IA32)
     int buf_allocated = 0;
-    if (in_ems_pageframe2(addr, rsize)) {
+    int tgt_ems = 0;
+#endif
+#ifdef EMS_SUPPORT
+    if (in_ems_pageframe2(addr, rsize))
+    {
         buf_allocated = 1;
+        tgt_ems = 1;
         buf = malloc(rsize);
         if (buf && write)
             ems_getmem(buf, addr, rsize);
     }
-#endif
+    else
+#endif //EMS_SUPPORT
+#ifdef IA32
+    {
+        buf_allocated = 1;
+        buf = malloc(rsize);
+        if (buf && write)
+            meml_reads(addr, buf, rsize);
+    }
+#else //not IA32
+    buf = getptr(addr, rsize);
+#endif //IA32
     if(!buf || !rsize)
     {
+#if defined(EMS_SUPPORT) || defined(IA32)
+        if(buf_allocated && buf)
+            free(buf);
+#endif
         debug(debug_dos, "\tbuffer pointer invalid\n");
         dos_error = 9;
         return 2; // segment wrap in DTA
@@ -462,7 +491,7 @@ static int dos_rw_record_fcb(unsigned addr, int write, int update, int seq)
     if(update)
     {
         unsigned rnum = (pos + ((n>0) ? rsize : 0)) / rsize;
-        memory[0x20 + fcb] = rnum & 127;
+        put8(0x20 + fcb, rnum & 127);
         put16(0x0C + fcb, rnum / 128);
         if(!seq)
             dos_seq_to_rand_fcb(fcb);
@@ -474,10 +503,22 @@ static int dos_rw_record_fcb(unsigned addr, int write, int update, int seq)
     dos_error = 0;
     for(unsigned i = n; i < rsize; i++)
         buf[i] = 0;
-#ifdef EMS_SUPPORT
-    if (buf_allocated) {
+#if defined(EMS_SUPPORT) || defined(IA32)
+    if (buf_allocated)
+    {
         if (!write)
-            ems_putmem(addr, buf, rsize);
+        {
+#ifdef EMS_SUPPORT
+            if (tgt_ems)
+                ems_putmem(addr, buf, rsize);
+            else
+#endif
+#ifdef IA32
+            meml_writes(addr, buf, rsize);
+#else
+            /*NOP*/;
+#endif
+        }
         free(buf);
     }
 #endif
@@ -668,13 +709,13 @@ static void dos_find_next(int first)
             struct stat st;
             if(0 == stat(d->unixname, &st))
             {
-                memory[dosDTA + 0x15] = get_attributes(st.st_mode);
+                put8(dosDTA + 0x15, get_attributes(st.st_mode));
                 put32(dosDTA + 0x16, get_time_date(st.st_mtime));
                 put32(dosDTA + 0x1A, (st.st_size > 0x7FFFFFFF) ? 0x7FFFFFFF : st.st_size);
             }
             else
             {
-                memory[dosDTA + 0x15] = 0;
+                put8(dosDTA + 0x15, 0);
                 put32(dosDTA + 0x16, 0x10001);
                 put32(dosDTA + 0x1A, 0);
             }
@@ -682,7 +723,7 @@ static void dos_find_next(int first)
         else
         {
             // Fills volume label data
-            memory[dosDTA + 0x15] = 8;
+            put8(dosDTA + 0x15, 8);
             put32(dosDTA + 0x16, get_time_date(time(0)));
             put32(dosDTA + 0x1A, 0);
         }
@@ -730,21 +771,21 @@ static void dos_find_next_fcb(void)
     {
         debug(debug_dos, "\t'%s' ('%s')\n", d->dosname, d->unixname);
         // Fills output FCB at DTA - use extended or normal depending on input
-        int exfcb = memory[get_ex_fcb()] == 0xFF;
+        int exfcb = get8(get_ex_fcb()) == 0xFF;
         int ofcb = exfcb ? dosDTA + 7 : dosDTA;
         int pos = 1;
         for(uint8_t *c = d->dosname; *c; c++)
         {
             if(*c != '.')
-                memory[ofcb + pos++] = *c;
+                put8(ofcb + pos++, *c);
             else
                 while(pos < 9)
-                    memory[ofcb + pos++] = ' ';
+                    put8(ofcb + pos++, ' ');
         }
         while(pos < 12)
-            memory[ofcb + pos++] = ' ';
+            put8(ofcb + pos++, ' ');
         // Fill drive letter
-        memory[ofcb] = memory[get_fcb()];
+        put8(ofcb, get8(get_fcb()));
         // Get file info
         if(strcmp("//", d->unixname))
         {
@@ -752,27 +793,27 @@ static void dos_find_next_fcb(void)
             struct stat st;
             if(0 == stat(d->unixname, &st))
             {
-                memory[ofcb + 0x0C] = get_attributes(st.st_mode);
+                put8(ofcb + 0x0C, get_attributes(st.st_mode));
                 put32(ofcb + 0x17, get_time_date(st.st_mtime));
                 put32(ofcb + 0x1D, (st.st_size > 0x7FFFFFFF) ? 0x7FFFFFFF : st.st_size);
             }
             else
             {
-                memory[ofcb + 0x0C] = 0;
+                put8(ofcb + 0x0C, 0);
                 put32(ofcb + 0x17, 0x10001);
                 put32(ofcb + 0x1D, 0);
             }
         }
         else
         {
-            memory[ofcb + 0x0C] = 8;
+            put8(ofcb + 0x0C, 8);
             put32(ofcb + 0x17, get_time_date(time(0)));
             put32(ofcb + 0x1D, 0);
         }
         if(exfcb)
         {
-            memory[dosDTA] = 0xFF;
-            memory[dosDTA + 6] = memory[ofcb + 0x0C];
+            put8(dosDTA, 0xFF);
+            put8(dosDTA + 6, get8(ofcb + 0x0C));
         }
         p->find_first_ptr++;
         dos_error = 0;
@@ -788,7 +829,7 @@ static void dos_find_first_fcb(void)
         dos_free_file_list(p->find_first_list);
 
     int efcb = get_ex_fcb();
-    int do_label = (memory[efcb] == 0xFF && memory[efcb + 6] == 0x08);
+    int do_label = (get8(efcb) == 0xFF && get8(efcb + 6) == 0x08);
     p->find_first_list = dos_find_first_file_fcb(get_fcb(), do_label);
     p->find_first_ptr = p->find_first_list;
     dos_find_next_fcb();
@@ -906,8 +947,8 @@ static void intr21_9(void)
 {
     int i = cpuGetAddrDS(cpuGetDX());
 
-    for(; memory[i] != 0x24 && i < 0x100000; i++)
-        dos_putchar(memory[i], 1);
+    for(; get8(i) != 0x24 && i < 0x100000; i++)
+        dos_putchar(get8(i), 1);
 
     dos_error = 0;
     cpuSetAL(0x24);
@@ -1189,6 +1230,49 @@ void intr2f(void)
     }
 }
 
+#ifdef IA32
+//
+static uint8_t *copy_envblock(uint32_t addr, int *envlen)
+{
+    static int bufsize = 0;
+    static uint8_t *buf = NULL;
+    int i;
+    int len = 0;
+    
+    if(envlen)
+        *envlen = 0;
+    do
+    {
+        for (i=0; i<0x10000 && !get8(addr++); i++)
+            len++;
+    } while (i < 0x10000 && get8(addr));
+    len++;
+    if(i >= 0x10000)
+        return NULL;
+
+    if(!buf)
+    {
+        int s = (len + 0xf) & ~0xf;
+        buf = malloc(len);
+        if(!buf)
+            return NULL;
+        bufsize = s;
+    }
+    else if(bufsize < len)
+    {
+        int s = (len + 0xf) & ~0xf;
+        buf = realloc(buf, s);
+        if(!buf)
+            return NULL;
+        bufsize = s;
+    }
+    meml_reads(addr, buf, len);
+    if(envlen)
+        *envlen = len;
+    return buf;
+}
+#endif
+
 // DOS int 21
 void intr21(void)
 {
@@ -1275,7 +1359,7 @@ void intr21(void)
     case 0xA: // BUFFERED INPUT
     {
         unsigned addr = cpuGetAddrDS(cpuGetDX());
-        unsigned len = memory[addr];
+        unsigned len = get8(addr);
         if(!len)
         {
             debug(debug_dos, "\tbuffered input len = 0\n");
@@ -1326,12 +1410,12 @@ void intr21(void)
                 continue;
             if(c == '\n' || c == EOF)
                 c = '\r';
-            memory[addr + i + 2] = (char)c;
+            put8(addr + i + 2, c);
             if(c == '\r')
                 break;
             i++;
         }
-        memory[addr + 1] = i;
+        put8(addr + 1, i);
         break;
     }
     case 0xB: // STDIN STATUS
@@ -1425,11 +1509,21 @@ void intr21(void)
             }
             // Backup old name, and copy new name to standard location
             uint8_t buf[11];
+#ifdef IA32
+            uint8_t buf2[11];
+            meml_reads(fcb_addr + 1, buf, 11);
+            meml_reads(fcb_addr + 0x11, buf2, 11);
+            meml_writes(fcb_addr + 1, buf2, 11);
+            char *fname2 = dos_unix_path_fcb(fcb_addr, 1, append_path());
+            // Restore name
+            meml_writes(fcb_addr + 1, buf, 11);
+#else
             memcpy(buf, memory + fcb_addr + 1, 11);
             memcpy(memory + fcb_addr + 1, memory + fcb_addr + 0x11, 11);
             char *fname2 = dos_unix_path_fcb(fcb_addr, 1, append_path());
             // Restore name
             memcpy(memory + fcb_addr + 1, buf, 11);
+#endif
             if(!fname2)
             {
                 free(fname1);
@@ -1489,6 +1583,19 @@ void intr21(void)
         break;
     case 0x26: // Create PSP (duplicate current PSP)
     {
+#ifdef IA32
+        uint8_t buf[0x80];
+        uint32_t new_psp = cpuGetAddress(cpuGetDX(), 0);
+        uint32_t orig_psp = cpuGetAddress(get_current_PSP(), 0);
+        if(check_limit(0x100, new_psp) || check_limit(0x100, orig_psp))
+        {
+            debug(debug_dos, "\tinvalid new PSP segment %04x.\n", cpuGetDX());
+            break;
+        }
+        // Copy PSP to the new segment, 0x80 is what DOS does - this excludes command line
+        meml_reads(orig_psp, buf, 0x80);
+        meml_writes(new_psp, buf, 0x80);
+#else
         uint8_t *new_psp = getptr(cpuGetAddress(cpuGetDX(), 0), 0x100);
         uint8_t *orig_psp = getptr(cpuGetAddress(get_current_PSP(), 0), 0x100);
         if(!new_psp || !orig_psp)
@@ -1498,6 +1605,7 @@ void intr21(void)
         }
         // Copy PSP to the new segment, 0x80 is what DOS does - this excludes command line
         memcpy(new_psp, orig_psp, 0x80);
+#endif
         break;
     }
     case 0x27: // BLOCK READ FROM FCB
@@ -1533,8 +1641,8 @@ void intr21(void)
         // TODO: length could be more than 64 bytes!
         char *fname = getstr(cpuGetAddrDS(cpuGetSI()), 64);
         char *orig = fname;
-        uint8_t *dst = getptr(cpuGetAddrES(cpuGetDI()), 37);
-        if(!dst)
+        uint32_t dst = cpuGetAddrES(cpuGetDI());
+        if(check_limit(37, dst))
         {
             debug(debug_dos, "\tinvalid destination\n");
             cpuSetAL(0xFF);
@@ -1551,14 +1659,14 @@ void intr21(void)
         // Check drive:
         int ret = 0;
         if(!(ax & 2))
-            dst[0] = 0;
+            put8(dst, 0);
         if(*fname && fname[1] == ':')
         {
             char d = *fname;
             if(d >= 'A' && d <= 'Z')
-                dst[0] = d - 'A' + 1;
+                put8(dst, d - 'A' + 1);
             else if(d >= 'a' && d <= 'z')
-                dst[0] = d - 'a' + 1;
+                put8(dst, d - 'a' + 1);
             else
                 ret = 0xFF;
             fname += 2;
@@ -1571,7 +1679,7 @@ void intr21(void)
             {
                 if(!(ax & 4) || i > 1)
                     for(; i < 9; i++)
-                        dst[i] = ' ';
+                        put8(dst + i, ' ');
                 else
                     i = 9;
                 fname++;
@@ -1580,25 +1688,25 @@ void intr21(void)
             {
                 if(!(ax & 4) || i > 1)
                     for(; i < 9; i++)
-                        dst[i] = ' ';
+                        put8(dst + i, ' ');
                 if(i < 9)
                     i = 9;
                 if(!(ax & 8) || i > 9)
                     for(; i < 12; i++)
-                        dst[i] = ' ';
+                        put8(dst + i, ' ');
                 break;
             }
             else if(c == '*' && i < 9)
             {
                 for(; i < 9; i++)
-                    dst[i] = '?';
+                    put8(dst + i, '?');
                 fname++;
                 ret = 1;
             }
             else if(c == '*')
             {
                 for(; i < 12; i++)
-                    dst[i] = '?';
+                    put8(dst + i, '?');
                 fname++;
                 ret = 1;
                 break;
@@ -1606,9 +1714,9 @@ void intr21(void)
             else
             {
                 if(c >= 'a' && c <= 'z')
-                    dst[i] = c - 'a' + 'A';
+                    put8(dst + i, c - 'a' + 'A');
                 else
-                    dst[i] = c;
+                    put8(dst + i, c);
                 i++;
                 fname++;
             }
@@ -1622,7 +1730,7 @@ void intr21(void)
         }
         cpuSetSI((si));
         cpuSetAL(ret);
-        debug(debug_dos, "%c:'%.11s'\n", dst[0] ? dst[0] + '@' : '*', dst + 1);
+        debug(debug_dos, "%c:'%.11s'\n", get8(dst) ? get8(dst) + '@' : '*', getstr(dst + 1, 36));
         break;
     }
     case 0x2A: // GET SYSTEM DATE
@@ -1736,14 +1844,28 @@ void intr21(void)
         }
         int len = cpuGetCX();
         uint32_t addr = cpuGetAddrDS(cpuGetDX());
-        uint8_t *buf = getptr(addr, len);
-#ifdef EMS_SUPPORT
+#if defined(EMS_SUPPORT) || defined(IA32)
         int buf_allocated = 0;
-        if (in_ems_pageframe2(addr, len)) {
+        int tgt_ems = 0;
+#endif
+        uint8_t *buf = NULL;
+#ifdef EMS_SUPPORT
+        if (in_ems_pageframe2(addr, len))
+        {
+            buf_allocated = 1;
+            tgt_ems = 1;
+            buf = malloc(len);
+        }
+        else
+#endif //EMS_SUPPORT
+#ifdef IA32
+        {
             buf_allocated = 1;
             buf = malloc(len);
         }
-#endif
+#else //not IA32
+        buf = getptr(addr, len);
+#endif //IA32
         if(!buf)
         {
             debug(debug_dos, "\tbuffer pointer invalid\n");
@@ -1765,9 +1887,18 @@ void intr21(void)
         }
         dos_error = 0;
         cpuClrFlag(cpuFlag_CF);
-#ifdef EMS_SUPPORT
+#if defined(EMS_SUPPORT) || defined(IA32)
         if (buf_allocated) {
-            ems_putmem(addr, buf, len);
+#ifdef EMS_SUPPORT            
+            if(tgt_ems)
+                ems_putmem(addr, buf, len);
+            else
+#endif
+#ifdef IA32
+            meml_writes(addr, buf, len);
+#else
+            /*NOP*/;
+#endif
             free(buf);
         }
 #endif
@@ -1812,17 +1943,30 @@ void intr21(void)
             break;
         }
         uint32_t addr = cpuGetAddrDS(cpuGetDX());
-        uint8_t *buf = getptr(addr, len);
-#ifdef EMS_SUPPORT
+#if defined(EMS_SUPPORT) || defined(IA32)
         int buf_allocated = 0;
-        if (in_ems_pageframe2(addr, len)) {
+#endif
+        uint8_t *buf = NULL;
+#ifdef EMS_SUPPORT
+        if (in_ems_pageframe2(addr, len))
+        {
             buf_allocated = 1;
             buf = malloc(len);
-            if (buf) {
+            if (buf)
                 ems_getmem(buf, addr, len);
-            }
         }
-#endif
+        else
+#endif //EMS_SUPPORT
+#ifdef IA32
+        {
+            buf_allocated = 1;
+            buf = malloc(len);
+            if (buf)
+                meml_reads(addr, buf, len);
+        }
+#else //not IA32
+        buf = getptr(addr, len);
+#endif //IA32
         if(!buf)
         {
             debug(debug_dos, "\tbuffer pointer invalid\n");
@@ -1845,7 +1989,7 @@ void intr21(void)
         }
         dos_error = 0;
         cpuClrFlag(cpuFlag_CF);
-#ifdef EMS_SUPPORT
+#if defined(EMS_SUPPORT) || defined(IA32)
         if (buf_allocated)
             free(buf);
 #endif
@@ -2138,7 +2282,7 @@ void intr21(void)
             // Read command line parameters:
             int pb = cpuGetAddrES(cpuGetBX());
             int cmd_addr = cpuGetAddress(get16(pb + 4), get16(pb + 2));
-            int clen = memory[cmd_addr];
+            int clen = get8(cmd_addr);
             char *cmdline = getstr(cmd_addr + 1, clen);
             debug(debug_dos, "\texec command line: '%s %.*s'\n", prgname, clen, cmdline);
             char *env = "\0\0";
@@ -2147,16 +2291,20 @@ void intr21(void)
                 env_seg = get16(cpuGetAddress(get_current_PSP(), 0x2C));
             if(env_seg != 0)
             {
+#ifdef IA32
+                env = (char *)copy_envblock(cpuGetAddress(env_seg, 0), NULL);
+#else
                 // Sanitize env
                 int eaddr = cpuGetAddress(env_seg, 0);
-                while(memory[eaddr] != 0 && eaddr < 0xFFFFF)
+                while(get8(eaddr) != 0 && eaddr < 0xFFFFF)
                 {
-                    while(memory[eaddr] != 0 && eaddr < 0xFFFFF)
+                    while(get8(eaddr) != 0 && eaddr < 0xFFFFF)
                         eaddr++;
                     eaddr++;
                 }
                 if(eaddr < 0xFFFFF)
                     env = (char *)(memory + cpuGetAddress(env_seg, 0));
+#endif
             }
             if(run_emulator(fname, prgname, cmdline, env))
             {
@@ -2180,7 +2328,7 @@ void intr21(void)
             // Read command line parameters:
             int pb = cpuGetAddrES(cpuGetBX());
             int cmd_addr = cpuGetAddress(get16(pb + 4), get16(pb + 2));
-            int clen = memory[cmd_addr];
+            int clen = get8(cmd_addr);
             char *cmdline = getstr(cmd_addr + 1, clen);
             debug(debug_dos, "\tload command line: '%s %.*s'\n", prgname, clen, cmdline);
 
@@ -2191,10 +2339,13 @@ void intr21(void)
             int elen = 2;
             char *env = "\0\0";
             
+#ifdef IA32
+            env = (char *)copy_envblock(eaddr, &elen);
+#else
             // Sanitize env
-            while(memory[eaddr] != 0 && eaddr < 0xFFFFF)
+            while(get8(eaddr) != 0 && eaddr < 0xFFFFF)
             {
-                while(memory[eaddr] != 0 && eaddr < 0xFFFFF)
+                while(get8(eaddr) != 0 && eaddr < 0xFFFFF)
                     eaddr++;
                 eaddr++;
             }
@@ -2203,7 +2354,8 @@ void intr21(void)
                 elen = eaddr - cpuGetAddress(env_seg, 0) + 1;
                 env = (char *)(memory + cpuGetAddress(env_seg, 0));
             }
-            
+#endif
+
             int psp_mcb = create_PSP(cmdline, env, elen, prgname);
             if(psp_mcb == 0)
             {
@@ -2439,6 +2591,21 @@ void intr21(void)
         break;
     case 0x55: // Create CHILD PSP
     {
+#ifdef IA32
+        uint8_t buf[0x80];
+        uint32_t new_psp = cpuGetAddress(cpuGetDX(), 0);
+        uint32_t orig_psp = cpuGetAddress(get_current_PSP(), 0);
+        if(check_limit(0x100, new_psp) || check_limit(0x100, orig_psp))
+        {
+            debug(debug_dos, "\tinvalid new PSP segment %04x.\n", cpuGetDX());
+            break;
+        }
+        // Copy PSP to the new segment, 0x80 is what DOS does - this excludes command line
+        meml_reads(orig_psp, buf, 0x80);
+        meml_writes(new_psp, buf, 0x80);
+        put8(new_psp + 22, get_current_PSP() & 0xFF);
+        put8(new_psp + 23, get_current_PSP() >> 8);
+#else
         uint8_t *new_psp = getptr(cpuGetAddress(cpuGetDX(), 0), 0x100);
         uint8_t *orig_psp = getptr(cpuGetAddress(get_current_PSP(), 0), 0x100);
         if(!new_psp || !orig_psp)
@@ -2451,6 +2618,7 @@ void intr21(void)
         // Set parent PSP to the current one
         new_psp[22] = get_current_PSP() & 0xFF;
         new_psp[23] = get_current_PSP() >> 8;
+#endif
         set_current_PSP(cpuGetDX());
         break;
     }
@@ -2523,6 +2691,27 @@ void intr21(void)
         break;
     case 0x60: // TRUENAME - CANONICALIZE FILENAME OR PATH
     {
+#ifdef IA32
+        uint32_t path_addr = cpuGetAddrDS(cpuGetSI());
+        uint32_t out_addr = cpuGetAddrES(cpuGetDI());
+        uint8_t buf[128];
+
+        if(check_limit(64, path_addr) || check_limit(128, out_addr))
+        {
+            dos_error = 3;
+            cpuSetFlag(cpuFlag_CF);
+            break;
+        }
+
+        // Copy input path to output
+        meml_reads(path_addr, buf, 64);
+        buf[64 + 3] = 0;
+        int drive = dos_path_normalize((char *)(buf + 3), 127 - 3);
+        buf[2] = '\\';
+        buf[1] = ':';
+        buf[0] = 'A' + drive;
+        meml_writes(out_addr, buf, strlen((char *)buf)+1);
+#else
         uint8_t *path_ptr = getptr(cpuGetAddrDS(cpuGetSI()), 64);
         uint8_t *out_ptr = getptr(cpuGetAddrES(cpuGetDI()), 128);
 
@@ -2540,6 +2729,7 @@ void intr21(void)
         out_ptr[2] = '\\';
         out_ptr[1] = ':';
         out_ptr[0] = 'A' + drive;
+#endif
         cpuClrFlag(cpuFlag_CF);
         cpuSetAX(0x5C);
         break;
@@ -2568,31 +2758,31 @@ void intr21(void)
             break;
         }
         case 2:
-            memory[addr] = 2;
+            put8(addr, 2);
             put16(addr + 1, nls_uppercase_table & 0xF);
             put16(addr + 3, nls_uppercase_table >> 4);
             cpuSetCX(5);
             break;
         case 4:
-            memory[addr] = 4;
+            put8(addr, 4);
             put16(addr + 1, nls_uppercase_table & 0xF);
             put16(addr + 3, nls_uppercase_table >> 4);
             cpuSetCX(5);
             break;
         case 5:
-            memory[addr] = 5;
+            put8(addr, 5);
             put16(addr + 1, nls_terminator_table & 0xF);
             put16(addr + 3, nls_terminator_table >> 4);
             cpuSetCX(5);
             break;
         case 6:
-            memory[addr] = 6;
+            put8(addr, 6);
             put16(addr + 1, nls_collating_table & 0xF);
             put16(addr + 3, nls_collating_table >> 4);
             cpuSetCX(5);
             break;
         case 7:
-            memory[addr] = 7;
+            put8(addr, 7);
             put16(addr + 1, nls_dbc_set_table & 0xF);
             put16(addr + 3, nls_dbc_set_table >> 4);
             cpuSetCX(5);
@@ -2678,11 +2868,18 @@ static void init_append(void)
 {
     char *env = getenv(ENV_APPEND);
     // allocate append path and status
-    dos_append = get_static_memory(0x100 + 2, 0);
+    dos_append = get_static_memory(DOS_APPEND_SIZE + 2, 0);
     if(env)
     {
         put16(dos_append, 0x0001);
+#ifdef IA32
+        int len = strlen(env);
+        if(len > 0xFF)
+            len = 0xFF;
+        meml_writes(dos_append + 2, env, len);
+#else
         strncpy((char *)memory + dos_append + 2, env, 0xFF);
+#endif
     }
 }
 
@@ -2851,15 +3048,15 @@ void init_dos(int argc, char **argv)
     // Init INTERRUPT handlers - point to our own handlers
     for(int i = 0; i < 256; i++)
     {
-        memory[i * 4 + 0] = i;
-        memory[i * 4 + 1] = 0;
-        memory[i * 4 + 2] = 0;
-        memory[i * 4 + 3] = 0;
+        put8(i * 4 + 0, i);
+        put8(i * 4 + 1, 0);
+        put8(i * 4 + 2, 0);
+        put8(i * 4 + 3, 0);
     }
 
     // Patch an INT 21 at address 0x000C0, this is for the CP/M emulation code
-    memory[0x000C0] = 0xCD;
-    memory[0x000C1] = 0x21;
+    put8(0x000C0, 0xCD);
+    put8(0x000C1, 0x21);
     
 #ifdef EMS_SUPPORT
     const char *emsmem = getenv(ENV_EMSMEM);

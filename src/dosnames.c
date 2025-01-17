@@ -738,7 +738,7 @@ char *dos_unix_path(int addr, int force, const char *append)
 char *dos_unix_path_fcb(int addr, int force, const char *append)
 {
     // Copy drive number from the FCB structure:
-    int drive = memory[addr] & 0xFF;
+    int drive = get8(addr) & 0xFF;
     if(!drive)
         drive = dos_default_drive;
     else
