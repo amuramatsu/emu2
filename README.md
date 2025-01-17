@@ -7,6 +7,11 @@ system calls and console I/O.
 Some extended features are implemented from
 [dmsc's original version](https://github.com/dmsc/emu2.git).
 
+* Experimental IA-32 CPU core implementation. This cpu core is came from
+  [NekoProject 21/w](https://simk98.github.io/np21w/).  
+  Pentium instruction set and x87 FPU, MMX, SSE, SSE2, SSE3, SSSE3, SSE4 and
+  SSE4a instructions are supported. Almost protect mode features are also supported.  
+  IA-32 CPU core is 30x slower than original 286-realmode core.
 * LIM-EMS 4.0.
 * DBCS codepage support.  
   Some applications ([VZEditor](https://github.com/vcraftjp/VZEditor), FD,
@@ -18,11 +23,21 @@ Some extended features are implemented from
   If you want to use batch file which contains some TSRs and applications, you can use 
   [FreeCOM](https://github.com/FDOS/freecom) with environment variable `EMU2_EXEC_SAMEPROC=1`.
 
+I have a plan to implement features listed below.
+
+* XMS 3.0
+* Long File Name support like as Windows 95 DOS prompt.
+
 Installation
 ------------
 
     make
     sudo make install
+
+or
+
+    make -f GNUmakefile.ia32
+    sudo make -f GNUmakefile.ia32 install
 
 The above installs `emu2` into `$(DESTDIR)${PREFIX}/bin/emu2`, this is
 `/usr/bin/emu2` by default.
@@ -33,6 +48,10 @@ Using the emulator
 To run a DOS `.exe` or `.com` file, simply load it with
 
     emu2 myprog.exe
+
+or
+
+    emu2-ia32 myprog.exe
 
 The emulator accepts some options in the command line and more options as
 environment variables, this allows child process (programs run by your DOS
