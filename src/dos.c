@@ -2389,7 +2389,7 @@ void intr21(void)
                     debug(debug_dos, "\texec_PSP is empty\n");
                     exit(ax & 0xFF);
                 }
-                if(exec_psp_root->psp == get_current_PSP())
+                if(exec_psp_root && exec_psp_root->psp == get_current_PSP())
                 {
                     struct exec_PSP *ep = exec_psp_root;
                     debug(debug_dos, "\tpop exec_PSP count\n");
