@@ -11,7 +11,7 @@ Some extended features are implemented from
   [NekoProject 21/w](https://simk98.github.io/np21w/).  
   Pentium instruction set and x87 FPU, MMX, SSE, SSE2, SSE3, SSSE3, SSE4 and
   SSE4a instructions are supported. Almost protect mode features are also supported.  
-  IA-32 CPU core is 30x slower than original 286-realmode core.
+  IA-32 CPU core is 3x slower than original 286-realmode core.
 * LIM-EMS 4.0.
 * DBCS codepage support.  
   Some applications ([VZEditor](https://github.com/vcraftjp/VZEditor), FD,

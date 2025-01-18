@@ -118,7 +118,9 @@ extern volatile int exit_cpu;
 // CPU interface
 void execute(void)
 {
+    CPU_BASECLOCK = 100; // each operation step must be lower than 100 tick
     for(; !exit_cpu;) {
+        CPU_REMCLOCK = CPU_BASECLOCK;
         handle_irq();
         ia32_step();
     }
