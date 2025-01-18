@@ -988,7 +988,8 @@ static int run_emulator(char *file, const char *prgname, char *cmdline, char *en
         setenv(ENV_CWD, (const char *)dos_get_cwd(0), 1);
         // fix filename
         const char *mode = getenv(ENV_FILENAME);
-        if(strcasecmp(mode, "8bit") == 0 || strcasecmp(mode, "dbcs") == 0)
+        if(mode &&
+           (strcasecmp(mode, "8bit") == 0 || strcasecmp(mode, "dbcs") == 0))
         {
             char m[32];
             strcpy(m, mode);
@@ -1236,18 +1237,18 @@ static uint8_t *copy_envblock(uint32_t addr, int *envlen)
 {
     static int bufsize = 0;
     static uint8_t *buf = NULL;
-    int i;
     int len = 0;
+    uint32_t idx = addr;
     
     if(envlen)
         *envlen = 0;
     do
     {
-        for (i=0; i<0x10000 && !get8(addr++); i++)
+        while (len < 0x10000 && get8(idx++))
             len++;
-    } while (i < 0x10000 && get8(addr));
-    len++;
-    if(i >= 0x10000)
+    } while (len < 0x10000 && get8(idx));
+    len += 3;
+    if(len >= 0x10000)
         return NULL;
 
     if(!buf)

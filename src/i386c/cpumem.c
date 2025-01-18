@@ -65,7 +65,7 @@ memp_write8(UINT32 address, REG8 value)
 #ifdef EMS_SUPPORT
     if (in_ems_pageframe(address))
     {
-        ems_put8(addr, value);
+        ems_put8(address, value);
         return;
     }
 #endif
