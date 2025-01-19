@@ -5,6 +5,7 @@
 #include "dos.h"
 #include "dosnames.h"
 #include "emu.h"
+#include "env.h"
 #include "keyb.h"
 #include "timer.h"
 #include "video.h"
@@ -12,6 +13,8 @@
 #ifdef EMS_SUPPORT
 #include "ems.h"
 #endif /* EMS_SUPPORT */
+#include "extmem.h"
+#include "pic.h"
 
 #include <errno.h>
 #include <fcntl.h>
@@ -34,10 +37,14 @@ uint8_t read_port(unsigned port)
     }
     else if(port == 0x3D4 || port == 0x3D5)
         return video_crtc_read(port);
+    else if(port == 0x20 || port == 0x21 || port == 0xa0 || port == 0xa1)
+        return port_pic_read(port);
     else if(port >= 0x40 && port <= 0x43)
         return port_timer_read(port);
     else if(port >= 0x60 && port <= 0x65)
         return keyb_read_port(port);
+    else if(port == 0x70 || port == 0x71 || port == 0x92) // CMOS & sys port A
+        port_misc_read(port);
     debug(debug_port, "port read %04x\n", port);
     return 0xFF;
 }
@@ -48,8 +55,12 @@ void write_port(unsigned port, uint8_t value)
         port_timer_write(port, value);
     else if(port == 0x03D4 || port == 0x03D5)
         video_crtc_write(port, value);
+    else if(port == 0x20 || port == 0x21 || port == 0xa0 || port == 0xa1)
+        port_pic_write(port, value);
     else if(port >= 0x60 && port <= 0x65)
         keyb_write_port(port, value);
+    else if(port == 0x70 || port == 0x71 || port == 0x92) // CMOS & sys port A
+        port_misc_write(port, value);
     else
         debug(debug_port, "port write %04x <- %02x\n", port, value);
 }
@@ -62,6 +73,47 @@ void emulator_update(void)
     check_screen();
     update_keyb();
     fflush(stdout);
+}
+
+struct farcall_entry_data {
+    uint32_t return_addr;
+    void (*func)(void);
+};
+
+static struct farcall_entry_data FARCALL_ENTRY_LIST[16];
+#ifdef NELEMENTS
+#undef NELEMENTS
+#endif
+#define NELEMENTS(n) (sizeof(n) / sizeof((n)[0]))
+
+int reg_farcall_entry(uint32_t ret_addr, void (*func)(void))
+{
+    for(int i = 0; i < NELEMENTS(FARCALL_ENTRY_LIST); i++)
+    {
+        if(!FARCALL_ENTRY_LIST[i].func)
+        {
+            FARCALL_ENTRY_LIST[i].return_addr = ret_addr;
+            FARCALL_ENTRY_LIST[i].func = func;
+            return 1;
+        }
+    }
+    return 0;
+}
+
+static void farcall_entry(void)
+{
+    uint16_t ip = cpuGetStack(0);
+    uint16_t cs = cpuGetStack(2);
+    uint32_t ret_addr = cpuGetAddress(cs, ip);
+
+    for(int i = 0; i < NELEMENTS(FARCALL_ENTRY_LIST); i++)
+    {
+        if(FARCALL_ENTRY_LIST[i].return_addr == ret_addr) {
+            FARCALL_ENTRY_LIST[i].func();
+            return;
+        }
+    }
+    debug(debug_int, "UNHANDLED FAR CALL ENTRY, called from %04x:%04x\n", cs, ip);
 }
 
 // BIOS - GET EQUIPMENT FLAG
@@ -125,6 +177,11 @@ NORETURN static void intr19(void)
 // DOS/BIOS interface
 void bios_routine(unsigned inum)
 {
+    if(inum >= 0x08 && inum <= 0x0f)
+        pic_eoi(inum - 0x08);
+    else if(inum >= 0x70 && inum <= 0x78)
+        pic_eoi(inum - 0x70);
+
     if(inum == 0x21)
         intr21();
     else if(inum == 0x20)
@@ -170,6 +227,8 @@ void bios_routine(unsigned inum)
     else if(inum == 0x67)
         intr67();
 #endif
+    else if (inum == 0xFF) // farcall entry for XMS and etc. functions
+        farcall_entry();
     else
         debug(debug_int, "UNHANDLED INT %02x, AX=%04x\n", inum, cpuGetAX());
 }
@@ -329,6 +388,32 @@ int main(int argc, char **argv)
     if(argc < 2)
         print_usage_error("program name expected.");
 
+    // Allocate memory
+    const char *memsize_str = getenv(ENV_MEMSIZE);
+#ifdef IA32
+    int memsize = 64;
+#else
+    int memsize = 16;
+#endif
+    if (memsize_str != NULL)
+    {
+        char *ep;
+        memsize = strtol(memsize_str, &ep, 0);
+#ifdef IA32
+        if (*ep  || memsize < 2 || memsize > 1024)
+            print_error("%s must be set between 2 to 1024\n", ENV_MEMSIZE);
+#else
+        if (*ep  || memsize < 2 || memsize > 32)
+            print_error("%s must be set between 2 to 16\n", ENV_MEMSIZE);
+#endif
+        if ((memsize & (memsize - 1)) != 0)
+            print_error("%s must be power of 2\n", ENV_MEMSIZE);
+    }
+    debug(debug_dos, "set MEMSIZE = %d\n", memsize);
+    memory = malloc(memsize * 1024 * 1024);
+    if(!memory)
+        print_error("cannot allocate memory %d MB\n", 16);
+
     // Init debug facilities
     init_debug(argv[1]);
     init_cpu();
@@ -345,6 +430,7 @@ int main(int argc, char **argv)
     }
     else
         init_dos(argc - 1, argv + 1);
+    init_xms(memsize);
 
     struct sigaction timer_action, exit_action;
     exit_action.sa_handler = exit_handler;

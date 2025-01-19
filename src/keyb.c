@@ -3,6 +3,7 @@
 #include "dbg.h"
 #include "emu.h"
 #include "os.h"
+#include "extmem.h"
 
 #include <errno.h>
 #include <fcntl.h>
@@ -530,7 +531,14 @@ uint8_t keyb_read_port(unsigned port)
         kbhit();
     debug(debug_int, "keyboard read_port: %02X (key=%04X)\n", port, 0xFFFFU & queued_key);
     if(port == 0x60)
+    {
+        if(keyb_command == 0xD0) // Read input port
+        {
+            keyb_command = 0x00;
+            return query_a20_enable() ? 0x02 : 0x00;
+        }
         return queued_key >> 8;
+    }
     else if(port == 0x61)
         return portB_ctl; // Controller B, used for speaker output
     else if(port == 0x64)
@@ -560,8 +568,9 @@ void keyb_write_port(unsigned port, uint8_t value)
                 {
                     // System reset
                     debug(debug_int, "System reset via invalid keyboard I/O!\n");
-                    exit(0);
+                    cpu_reset();
                 }
+                set_a20_enable((value & 2) ? 1 : 0);
                 keyb_command = 0;
             }
         }
@@ -581,7 +590,7 @@ void keyb_write_port(unsigned port, uint8_t value)
             {
                 // System reset
                 debug(debug_int, "System reset via keyboard controller!\n");
-                exit(0);
+                cpu_reset();
             }
             keyb_command = 0;
         }

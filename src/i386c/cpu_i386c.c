@@ -2,14 +2,17 @@
 #include <ia32/cpu.h>
 #include <ia32/instructions/fpu/fp.h>
 #include <../dbg.h>
+#define IA32 1
 #include <../emu.h>
 
-void bios_routine(unsigned inum);
-static uint16_t irq_mask; // IRQs pending
+extern void bios_routine(unsigned inum);
+extern void handle_irq(void);
 
 static void
 debug_regs(void)
 {
+    if(!debug_active(debug_cpu))
+        return;
     debug(debug_cpu, "EAX=%08X EBX=%08X ECX=%08X EDX=%08X ",
           CPU_EAX, CPU_EBX, CPU_ECX, CPU_EDX);
     debug(debug_cpu, "ESP=%04X EBP=%04X ESI=%04X EDI=%04X ",
@@ -39,9 +42,11 @@ debug_regs(void)
 static void
 debug_instruction(uint32_t eip, int iret)
 {
+    if(!debug_active(debug_cpu))
+        return;
     if(iret)
         debug(debug_cpu, "%04x:%08x: %s%s\n",
-	      CPU_CS, eip, "                        ", "(iret)");
+              CPU_CS, eip, "                        ", "(iret)");
     else
         debug(debug_cpu, "%s\n", cpu_disasm2str(eip));
 }
@@ -69,48 +74,25 @@ emu2_hook(void)
     int iret = 0;
     if (!CPU_STAT_PM || CPU_STAT_VM86)
     {
-	addr = CPU_EIP + (CPU_CS << 4);
+        addr = CPU_EIP + (CPU_CS << 4);
         if(addr < 0x100)
         {
             bios_routine(addr & 0xFF);
             iret = 1;
         }
     }
-    if(debug_active(debug_cpu))
-        debug_regs();
+    debug_regs();
     if(iret)
     {
         //IRET
         uint32_t stack = CPU_SS * 16 + CPU_SP;
-        if(debug_active(debug_cpu))
-            debug(debug_cpu, "%04x:%08x: %s%s\n",
-	          CPU_CS, CPU_EIP, "??                      ", "(iret)");
+        debug(debug_cpu, "%04x:%08x: %s%s\n",
+              CPU_CS, CPU_EIP, "??                      ", "(iret)");
         CPU_IP = meml_read16(stack);
         LOAD_SEGREG(CPU_CS_INDEX,  meml_read16(stack+2));
         CPU_FLAG = meml_read16(stack+4);
         CPU_SP += 6;
-        if(debug_active(debug_cpu))
-            debug_regs();
-    }
-}
-
-static void handle_irq(void)
-{
-    if((CPU_EFLAG & I_FLAG) && irq_mask)
-    {
-        // Get lower set bit (highest priority IRQ)
-        uint16_t bit = irq_mask & -irq_mask;
-        if(bit)
-        {
-            uint8_t bp[16] = {0, 1, 2, 5, 3, 9, 6, 11, 15, 4, 8, 10, 14, 7, 13, 12};
-            uint8_t irqn = bp[(bit * 0x9af) >> 12];
-            debug(debug_int, "handle irq, mask=$%04x irq=%d\n", irq_mask, irqn);
-            irq_mask &= ~bit;
-            if(irqn < 8)
-                ia32_interrupt(8 + irqn, 0);
-            else
-                ia32_interrupt(0x68 + irqn, 0);
-        }
+        debug_regs();
     }
 }
 
@@ -121,7 +103,8 @@ void execute(void)
     CPU_BASECLOCK = 100; // each operation step must be lower than 100 tick
     for(; !exit_cpu;) {
         CPU_REMCLOCK = CPU_BASECLOCK;
-        handle_irq();
+        if (CPU_EFLAG & I_FLAG)
+            handle_irq();
         ia32_step();
     }
 }
@@ -232,12 +215,15 @@ int cpuGetAddrSS(uint16_t offset)
     return CPU_SS * 16 + offset;
 }
 
-void cpuTriggerIRQ(int num)
-{
-    irq_mask |= (1 << num);
-}
-
 uint16_t cpuGetStack(uint16_t disp)
 {
     return memr_read16(cpuGetSS(), cpuGetSP() + disp);
+}
+
+void
+cpu_reset(void)
+{
+    ia32reset();
+    cpuSetIP(get16(0x467));
+    cpuSetCS(get16(0x469));
 }

@@ -322,6 +322,7 @@ fpu_memorywrite_f64(UINT32 address, double value)
 }
 #endif
 
+extern void cpuTriggerIRQ(int num);
 void
 FPU_FWAIT(void)
 {
@@ -337,7 +338,10 @@ FPU_FWAIT(void)
 	
 	// Check exception
 	if((FPU_STATUSWORD & ~FPU_CTRLWORD) & 0x3F){
-		EXCEPTION(MF_EXCEPTION, 0);
+		if (CPU_CR0 & CPU_CR0_NE)
+			EXCEPTION(MF_EXCEPTION, 0); // native mode
+		else
+			cpuTriggerIRQ(13);          // MS-DOS compat mode
 	}
 #endif
 }

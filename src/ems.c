@@ -19,8 +19,6 @@ static uint16_t ems_header_seg;
 #define EMS_ADDR_BEGIN  (EMS_PAGEFRAME_SEG << 4)
 #define EMS_ADDR_END    (EMS_ADDR_BEGIN + 0x10000)
 
-extern uint32_t get_static_memory(uint16_t bytes, uint16_t align);
-
 enum EMM_STATUS {
     EMM_STATUS_SUCCESS = 0x00,
     EMM_STATUS_MALFUNCTION_SOFT = 0x80,

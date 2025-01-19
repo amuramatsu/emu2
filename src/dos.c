@@ -11,6 +11,7 @@
 #include "video.h"
 #include "os.h"
 #include "ems.h"
+#include "extmem.h"
 
 #include <errno.h>
 #include <fcntl.h>
@@ -1211,6 +1212,17 @@ void intr2f(void)
         // cpu to other tasks.
         debug(debug_dos, "W-2F1680: sleep\n");
         usleep(33000);
+        break;
+    case 0x4300: // XMS exist check
+        cpuSetAL(0x80);
+        break;
+    case 0x4310: // XMS far call address
+       {
+           cpuSetAL(0x80);
+           uint32_t addr = xms_entry_point();
+           cpuSetES(addr >> 4);
+           cpuSetBX(addr & 0x0F);
+       }
         break;
     case 0xB700:
         cpuSetAL(0xFF);
