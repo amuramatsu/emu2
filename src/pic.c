@@ -124,6 +124,8 @@ port_pic_write(unsigned port, uint8_t value)
             pic[pic_idx].ISR = 0x00;
             pic[pic_idx].IRR = 0x00;
             pic[pic_idx].pending = 0x00;
+            pic[pic_idx].special_mask = 0;
+            pic[pic_idx].data_read = PIC_READ_IRR;
         }
         else if (value & PIC_OCW3_FLAG) {
             if (value & PIC_OCW3_ESMM)
