@@ -224,10 +224,10 @@ uint16_t cpuGetStack(uint16_t disp)
     return memr_read16(cpuGetSS(), cpuGetSP() + disp);
 }
 
+extern void system_reboot(void);
 void
 cpu_reset(void)
 {
     ia32reset();
-    cpuSetIP(get16(0x467));
-    cpuSetCS(get16(0x469));
+    system_reboot();
 }

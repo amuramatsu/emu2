@@ -29,6 +29,7 @@
 
 uint8_t read_port(unsigned port)
 {
+    debug(debug_port, "port read %04x\n", port);
     if(port == 0x3DA) // CGA status register
     {
         static int retrace = 0;
@@ -49,12 +50,13 @@ uint8_t read_port(unsigned port)
         return 0x00;
     else if (port == 0xda) // Secondary DMAC Intrmed: free386 check this port
         return 0x00;
-    debug(debug_port, "port read %04x\n", port);
+    debug(debug_port, "NOT_IMPL port read %04x\n", port);
     return 0xFF;
 }
 
 void write_port(unsigned port, uint8_t value)
 {
+    debug(debug_port, "port write %04x <- %02x\n", port, value);
     if(port >= 0x40 && port <= 0x43)
         port_timer_write(port, value);
     else if(port == 0x03D4 || port == 0x03D5)
@@ -66,7 +68,7 @@ void write_port(unsigned port, uint8_t value)
     else if(port == 0x70 || port == 0x71 || port == 0x92) // CMOS & sys port A
         port_misc_write(port, value);
     else
-        debug(debug_port, "port write %04x <- %02x\n", port, value);
+        debug(debug_port, "NOTIMPL port write %04x <- %02x\n", port, value);
 }
 
 void emulator_update(void)

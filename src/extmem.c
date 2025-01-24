@@ -616,8 +616,8 @@ port_misc_write(unsigned port, uint8_t value)
     if (port == 0x70)
         cmos_index = value;
     else if (port == 0x71) {
-        debug(debug_port, "system port write - cmos(%04X) <- %02X\n",
-              cmos_index, value);
+        //debug(debug_port, "system port write - cmos(%04X) <- %02X\n",
+        //      cmos_index, value);
         if (cmos_index == 0x00f)
             cmos_shutdown_type = value;
     }
@@ -629,4 +629,22 @@ port_misc_write(unsigned port, uint8_t value)
             cpu_reset();
         }
     }
+}
+
+void
+system_reboot(void)
+{
+    char buf[128];
+    snprintf(buf, sizeof(buf),
+             "CPU RESET, type %02X, restart from %04X:%04X",
+	     cmos_shutdown_type, get16(0x469), get16(0x467));
+    buf[sizeof(buf)-1] = 0;
+    debug(debug_port, "%s\n", buf);
+    debug(debug_cpu, "%s\n", buf);
+    debug(debug_int, "%s\n", buf);
+    if (cmos_shutdown_type != 0x06 && cmos_shutdown_type != 0x09 && 
+        cmos_shutdown_type != 0x0a)
+        exit(1);
+    cpuSetIP(get16(0x467));
+    cpuSetCS(get16(0x469));
 }

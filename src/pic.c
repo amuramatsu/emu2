@@ -92,8 +92,12 @@ port_pic_read(unsigned port)
     if ((port & 0x0f) == 0) { // CMD
         switch (pic[pic_idx].data_read) {
             case PIC_READ_IRR:
+                debug(debug_port, "PIC %d read IRR (%08X)\n",
+                      pic_idx, pic[pic_idx].IRR);
                 return pic[pic_idx].IRR;
             case PIC_READ_ISR:
+                debug(debug_port, "PIC %d read ISR (%08X)\n",
+                      pic_idx, pic[pic_idx].ISR);
                 return pic[pic_idx].ISR;
             case PIC_READ_POLL:
                 return 0x00;
@@ -101,8 +105,11 @@ port_pic_read(unsigned port)
                 return 0xff;
         }
     }
-    else if ((port & 0x0f) == 1) // DATA
+    else if ((port & 0x0f) == 1) { // DATA
+        debug(debug_port, "PIC %d read IMR (%08X)\n",
+              pic_idx, pic[pic_idx].ISR);
         return pic[pic_idx].IMR;
+    }
     return 0xff;
 }
 
@@ -117,8 +124,9 @@ port_pic_write(unsigned port, uint8_t value)
 
     if ((port & 0x0f) == 0) { // CMD
         if (value & PIC_ICW1_INIT) {
+            debug(debug_port, "PIC %d ICW1 <- %02X\n", pic_idx, value);
             if (value != 0x11)
-                debug(debug_port, "BAD PIC %d CMD %02x\n", pic_idx, value);
+                debug(debug_port, "BAD PIC %d CMD %02X\n", pic_idx, value);
             pic[pic_idx].initializing = 1;
             pic[pic_idx].IMR = 0x00;
             pic[pic_idx].ISR = 0x00;
@@ -128,6 +136,7 @@ port_pic_write(unsigned port, uint8_t value)
             pic[pic_idx].data_read = PIC_READ_IRR;
         }
         else if (value & PIC_OCW3_FLAG) {
+            debug(debug_port, "PIC %d OCW3 <- %02X\n", pic_idx, value);
             if (value & PIC_OCW3_ESMM)
                 pic[pic_idx].special_mask = (value & PIC_OCW3_SMM) ? 1 : 0;
             if (value & PIC_OCW3_RR)
@@ -135,6 +144,7 @@ port_pic_write(unsigned port, uint8_t value)
                     (value & PIC_OCW3_RIS) ? PIC_READ_ISR : PIC_READ_IRR;
         }
         else { // EOI
+            debug(debug_port, "PIC %d OCW2 <- %02X\n", pic_idx, value);
             switch (value & 0xe0) {
                 case 0x20: // non-special EOI
                 case 0xa0: // non-special EOI with rotate
@@ -151,27 +161,32 @@ port_pic_write(unsigned port, uint8_t value)
                     break;
 
                 default:
-                    debug(debug_port, "PIC %d EOI %02x\n", pic_idx, value);
+                    debug(debug_port, "PIC %d EOI %02X\n", pic_idx, value);
             }
         }
     }
     else if ((port & 0x0f) == 1) { // DATA
         if (pic[pic_idx].initializing == 1) {
+            debug(debug_port, "PIC %d ICW2 <- %02X\n", pic_idx, value);
             pic[pic_idx].irq_base = value & 0xf8;
             pic[pic_idx].initializing++;
         }
         else if (pic[pic_idx].initializing == 2) {
+            debug(debug_port, "PIC %d ICW3 <- %02X\n", pic_idx, value);
             //skip ICW3
             pic[pic_idx].initializing++;
         }
         else if (pic[pic_idx].initializing == 3) {
+            debug(debug_port, "PIC %d ICW4 <- %02X\n", pic_idx, value);
             pic[pic_idx].auto_eoi = (value & PIC_ICW4_AUTOEOI) ? 1 : 0;
             pic[pic_idx].special_nest = (value & PIC_ICW4_SPECIAL_NEST) ? 1 : 0;
             pic[pic_idx].initializing = 0;
             pic[pic_idx].IRR = pic[pic_idx].pending;
         }
-        else
+        else {
+            debug(debug_port, "PIC %d IMR <- %02X\n", pic_idx, value);
             pic[pic_idx].IMR = value;
+        }
     }
 }
 
@@ -210,7 +225,7 @@ handle_irq(void)
 
     // check slave
     if (pic[1].IRR) {
-        debug(debug_int, "check slave PIC, ISR=%02x, IRR=%02x, IMR=%02x\n",
+        debug(debug_int, "check slave PIC, ISR=%02X, IRR=%02X, IMR=%02X\n",
               pic[1].ISR, pic[1].IRR, pic[1].IMR);
         for (int i = 0; i < 8; i++) {
             uint8_t m = 0x01 << i;
@@ -231,7 +246,7 @@ handle_irq(void)
 
     // check master
     if (pic[0].IRR) {
-        debug(debug_int, "check master PIC, ISR=%02x, IRR=%02x, IMR=%02x\n",
+        debug(debug_int, "check master PIC, ISR=%02X, IRR=%02X, IMR=%02X\n",
               pic[0].ISR, pic[0].IRR, pic[0].IMR);
         for (int i = 0; i < 8; i++) {
             uint8_t m = 0x01 << i;
