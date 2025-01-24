@@ -224,7 +224,7 @@ void bios_routine(unsigned inum)
     else if(inum == 0x9)
         keyb_handle_irq(); // Keyboard interrupt
 #ifdef EMS_SUPPORT
-    else if(inum == 0x67)
+    else if(use_ems && inum == 0x67)
         intr67();
 #endif
     else if (inum == 0xFF) // farcall entry for XMS and etc. functions
