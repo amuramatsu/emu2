@@ -37,6 +37,10 @@ debug_regs(void)
           (CPU_EFLAG & RF_FLAG) ? "RF" : "rf",
           (CPU_EFLAG & NT_FLAG) ? "NT" : "nt",
           (CPU_EFLAG >> 12) & 0x03); // IOPL
+    debug(debug_cpu, "CR0=%08X CR1=%08X CR2=%08X CR3=%08X CR4=%08X MXCSR=%08X ",
+          CPU_CR0, CPU_CR1, CPU_CR2, CPU_CR3, CPU_CR4, CPU_MXCSR);
+    debug(debug_cpu, "GDTR=%08X(%04X), IDTR=%08X(%04X) LDTR=%04X TR=%04X\n",
+          CPU_GDTR_BASE, CPU_GDTR_LIMIT, CPU_IDTR_BASE, CPU_IDTR_LIMIT, CPU_LDTR, CPU_TR);
 }
 
 static void
