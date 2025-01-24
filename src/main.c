@@ -44,7 +44,11 @@ uint8_t read_port(unsigned port)
     else if(port >= 0x60 && port <= 0x65)
         return keyb_read_port(port);
     else if(port == 0x70 || port == 0x71 || port == 0x92) // CMOS & sys port A
-        port_misc_read(port);
+        return port_misc_read(port);
+    else if (port == 0xd0) // Secondary DMAC status: free386 check this port
+        return 0x00;
+    else if (port == 0xda) // Secondary DMAC Intrmed: free386 check this port
+        return 0x00;
     debug(debug_port, "port read %04x\n", port);
     return 0xFF;
 }

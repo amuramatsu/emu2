@@ -596,10 +596,17 @@ port_misc_read(unsigned port)
 {
     if (port == 0x70)
         return cmos_index;
-    else if (port == 0x71)
-        return cmos_index == 0x00f ? cmos_shutdown_type : 0x00;
-    else if (port == 0x92)
-        return query_a20_enable() ? 0x02 : 0x00;
+    else if (port == 0x71) {
+        uint8_t cmos_data = cmos_index == 0x00f ? cmos_shutdown_type : 0x00;
+        debug(debug_port, "system port read - cmos(%04X) -> %02X\n",
+              cmos_index, cmos_data);
+        return cmos_data;
+    }
+    else if (port == 0x92) {
+        int a20_stat = query_a20_enable();
+        debug(debug_port, "system port read - check A20=%d\n", a20_stat);
+        return a20_stat ? 0x02 : 0x00;
+    }
     return 0xff;
 }
 
@@ -609,10 +616,13 @@ port_misc_write(unsigned port, uint8_t value)
     if (port == 0x70)
         cmos_index = value;
     else if (port == 0x71) {
+        debug(debug_port, "system port write - cmos(%04X) <- %02X\n",
+              cmos_index, value);
         if (cmos_index == 0x00f)
             cmos_shutdown_type = value;
     }
     else if (port == 0x92) {
+        debug(debug_port, "system port write - 0x92 <- %02X\n", value);
         set_a20_enable((value & 0x02) ? 1 : 0);
         if (value & 0x01) {
             debug(debug_int, "System reset via system port A!\n");
