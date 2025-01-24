@@ -1258,8 +1258,9 @@ static uint8_t *copy_envblock(uint32_t addr, int *envlen)
     {
         while (len < 0x10000 && get8(idx++))
             len++;
+        len++;
     } while (len < 0x10000 && get8(idx));
-    len += 3;
+    len++;
     if(len >= 0x10000)
         return NULL;
 
