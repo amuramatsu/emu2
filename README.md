@@ -12,7 +12,9 @@ Some extended features are implemented from
   Pentium instruction set and x87 FPU, MMX, SSE, SSE2, SSE3, SSSE3, SSE4 and
   SSE4a instructions are supported. Almost protect mode features are also supported.  
   IA-32 CPU core is 3x slower than original 286-realmode core.
+* XMS 3.0.
 * LIM-EMS 4.0.
+* Some peripherals needed to run DOS extender (a20 gate, 8259 PIC).
 * DBCS codepage support.  
   Some applications ([VZEditor](https://github.com/vcraftjp/VZEditor), FD,
   MIEL, FILMNT, LHMNT..) can work on this with `EMU2_CODEPAGE=932`.
@@ -25,7 +27,6 @@ Some extended features are implemented from
 
 I have a plan to implement features listed below.
 
-* XMS 3.0
 * Long File Name support like as Windows 95 DOS prompt.
 
 Installation
@@ -121,6 +122,12 @@ The available environment variables are:
                        programs will retrieve this info and adjust the screen
                        properly, some other will ignore this and setup the text
                        mode again.
+
+- `EMU2_MEMSIZE`       Virtual machines memory size (conventional memory +
+                       extended memory).
+                       This values must be power of 2, between 2 to 16 (286 CPU
+                       core) or 2 to 1024 (ia32 CPU core), MiB unit.
+                       The default is 16 (286) or 64 (ia32).
 
 - `EMU2_EMSMEM`        Use LIM-EMS 4.0. Set this variable as available pages
                        between 0 (no use) to 2048 (32MiB).

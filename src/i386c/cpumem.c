@@ -29,14 +29,8 @@
 
 // ----
 
-extern uint8_t memory[];
-
-int
-check_limit(uint32_t address, uint32_t size)
-{
-    return 0;
-}
-
+extern uint8_t *memory;
+extern uint32_t memory_mask;
 REG8 MEMCALL
 memp_read8(UINT32 address)
 {
@@ -44,7 +38,7 @@ memp_read8(UINT32 address)
     if (in_ems_pageframe(address))
         return ems_get8(address);
 #endif
-    return memory[address & 0xFFFFF] & 0xff;
+    return memory[address & memory_mask] & 0xff;
 }
 
 REG16 MEMCALL
@@ -69,7 +63,7 @@ memp_write8(UINT32 address, REG8 value)
         return;
     }
 #endif
-    memory[address & 0xFFFFF] = value;
+    memory[address & memory_mask] = value;
 }
 
 void MEMCALL

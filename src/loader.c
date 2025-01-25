@@ -6,8 +6,6 @@
 #include <stdlib.h>
 #include <string.h>
 
-// Main Memory (17 * 64K, no overlap)
-uint8_t memory[0x110000];
 // First MCB
 static uint16_t mcb_start = 0x40;
 // MCB allocation strategy

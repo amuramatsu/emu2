@@ -46,11 +46,22 @@ NORETURN void print_usage(void)
            "  %-18s  Specifies a DOS append paths, separated by ';'.\n"
            "  %-18s  Set version of DOS to emulate, e.g. '2.11', '3.20', etc.\n"
            "  %-18s  Setup text mode with given number of rows, from 12 to 50.\n"
+#ifdef IA32
+           "  %-18s  Whole memory size[MB], power of 2 up to 1024, default 64.\n"
+#else
+           "  %-18s  Whole memory size[MB], power of 2 up to 16, default 16.\n"
+#endif
+#ifdef EMS_SUPPORT
            "  %-18s  Use LIM-EMS 4.0. Set this variable as available pages.\n"
+#endif
            "  %-18s  Filename mode (7bit, 8bit or DBCS).\n"
            "  %-18s  Exec child process in same emulator process.\n",
            prog_name, ENV_DBG_NAME, ENV_DBG_OPT, ENV_PROGNAME, ENV_DEF_DRIVE, ENV_CWD,
-           ENV_DRIVE "n", ENV_CODEPAGE, ENV_LOWMEM, ENV_APPEND, ENV_DOSVER, ENV_ROWS, ENV_EMSMEM, ENV_FILENAME, ENV_EXEC_SAME);
+           ENV_DRIVE "n", ENV_CODEPAGE, ENV_LOWMEM, ENV_APPEND, ENV_DOSVER, ENV_ROWS, ENV_MEMSIZE,
+#ifdef EMS_SUPPORT
+           ENV_EMSMEM,
+#endif
+           ENV_FILENAME, ENV_EXEC_SAME);
     exit(EXIT_SUCCESS);
 }
 

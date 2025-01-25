@@ -27,8 +27,6 @@ static int segment_override;
 
 static uint8_t parity_table[256];
 
-static uint16_t irq_mask; // IRQs pending
-
 static uint8_t GetMemAbsB(uint32_t addr)
 {
     return get8(addr);
@@ -402,7 +400,7 @@ static void next_instruction(void)
         do_instruction(FETCH_B());
 }
 
-static void interrupt(unsigned int_num)
+void interrupt(unsigned int_num)
 {
     uint16_t dest_seg, dest_off;
 
@@ -450,26 +448,6 @@ static void cpu_trap(int num)
 {
     ip = start_ip;
     interrupt(num);
-}
-
-static void handle_irq(void)
-{
-    if(IF && irq_mask)
-    {
-        // Get lower set bit (highest priority IRQ)
-        uint16_t bit = irq_mask & -irq_mask;
-        if(bit)
-        {
-            uint8_t bp[16] = {0, 1, 2, 5, 3, 9, 6, 11, 15, 4, 8, 10, 14, 7, 13, 12};
-            uint8_t irqn = bp[(bit * 0x9af) >> 12];
-            debug(debug_int, "handle irq, mask=$%04x irq=%d\n", irq_mask, irqn);
-            irq_mask &= ~bit;
-            if(irqn < 8)
-                interrupt(8 + irqn);
-            else
-                interrupt(0x68 + irqn);
-        }
-    }
 }
 
 #define ADD_8()                                                                \
@@ -2549,11 +2527,13 @@ static void do_instruction(uint8_t code)
     };
 }
 
+extern void handle_irq(void);
 void execute(void)
 {
     for(; !exit_cpu;)
     {
-        handle_irq();
+        if(IF)
+            handle_irq();
         next_instruction();
     }
 }
@@ -2646,7 +2626,7 @@ uint16_t cpuGetStack(uint16_t disp)
     return GetMemW(SS, wregs[SP] + disp);
 }
 
-void cpuTriggerIRQ(int num)
+void cpu_reset(void)
 {
-    irq_mask |= (1 << num);
+    exit(0);
 }

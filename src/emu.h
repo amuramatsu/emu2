@@ -6,7 +6,9 @@
 #include <string.h>
 
 extern volatile int exit_cpu;
-extern uint8_t memory[];
+extern uint32_t memory_mask;
+extern uint32_t memory_limit;
+uint8_t *memory;
 
 int cpuGetAddress(uint16_t segment, uint16_t offset);
 int cpuGetAddrDS(uint16_t offset);
@@ -23,6 +25,11 @@ void bios_routine(unsigned inum);
 // CPU interface
 void execute(void); // 1 ins.
 void init_cpu(void);
+void cpu_reset(void);
+
+//Helper functions
+uint32_t get_static_memory(uint16_t bytes, uint16_t align);
+int reg_farcall_entry(uint32_t ret_addr, void (*func)(void));
 
 // async HW update
 void emulator_update(void);
@@ -61,6 +68,32 @@ unsigned cpuGetCS(void);
 unsigned cpuGetSS(void);
 unsigned cpuGetDS(void);
 unsigned cpuGetIP(void);
+
+#ifdef IA32
+void cpuSetFS(unsigned v);
+void cpuSetGS(unsigned v);
+void cpuSetEAX(uint32_t v);
+void cpuSetECX(uint32_t v);
+void cpuSetEDX(uint32_t v);
+void cpuSetEBX(uint32_t v);
+void cpuSetESP(uint32_t v);
+void cpuSetEBP(uint32_t v);
+void cpuSetESI(uint32_t v);
+void cpuSetEDI(uint32_t v);
+void cpuSetEIP(uint32_t v);
+
+unsigned cpuGetFS(void);
+unsigned cpuGetGS(void);
+uint32_t cpuGetEAX(void);
+uint32_t cpuGetECX(void);
+uint32_t cpuGetEDX(void);
+uint32_t cpuGetEBX(void);
+uint32_t cpuGetESP(void);
+uint32_t cpuGetEBP(void);
+uint32_t cpuGetESI(void);
+uint32_t cpuGetEDI(void);
+uint32_t cpuGetEIP(void);
+#endif
 
 // Alter flags in the stack, use from interrupt handling
 enum cpuFlags
@@ -120,8 +153,6 @@ uint32_t meml_read32(uint32_t address);
 // Write mem block
 void meml_reads(uint32_t address, void *dat, unsigned int leng);
 
-int check_limit(uint32_t size, uint32_t dest);
-
 #else // not IA32
 
 // Read 8 bit number
@@ -133,7 +164,7 @@ static inline void put8(int addr, int v)
 	return;
     }
 #endif
-    memory[0xFFFFF & (addr)] = v;
+    memory[memory_mask & (addr)] = v;
 }
 
 // Read 16 bit number
@@ -158,7 +189,7 @@ static inline int get8(int addr)
 	return ems_get8(addr);
     }
 #endif
-    return memory[0xFFFFF & addr];
+    return memory[memory_mask & addr];
 }
 
 // Write 16 bit number
@@ -173,10 +204,10 @@ static inline unsigned get32(int addr)
     return get16(addr) + (get16(addr + 2) << 16);
 }
 
-#define check_limit(s, d) \
-    ((s) >= 0x100000 || (d) >= 0x100000 || (s) + (d) >= 0x100000)
-
 #endif // IA32
+
+#define check_limit(s, d) \
+    ((s) >= memory_limit || (d) >= memory_limit || (s) + (d) >= memory_limit)
 
 // Push word to stack
 static inline void cpuPushWord(uint16_t w)
