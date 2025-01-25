@@ -419,6 +419,7 @@ int main(int argc, char **argv)
     memory = malloc(memsize * 1024 * 1024);
     if(!memory)
         print_error("cannot allocate memory %d MB\n", 16);
+    memset(memory, 0, 1024*1024); // clear first 1MB
 
     // Init debug facilities
     init_debug(argv[1]);
