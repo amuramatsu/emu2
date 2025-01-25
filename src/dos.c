@@ -1168,7 +1168,8 @@ static void intr21_debug(void)
         "create PSP", "rename", "g/set file dates", "g/set alloc type", "ext error", // 55-59
         "create tmpfile", "creat new file", "flock", "(server fn)", "(net fn)", // 5A-5E
         "(net redir)", "truename", "n/a", "get PSP", "intl char info", // 5F-63
-        "(internal)", "get ext country info"
+        "(internal)", "get ext country info", "(g/set global codepage table)", // 64-66
+        "(set handle count)", "fflush" //67-68
     };
     const char *fn;
     static int count = 0;
@@ -2817,6 +2818,19 @@ void intr21(void)
     case 0x67: // SET HANDLE COUNT
         cpuClrFlag(cpuFlag_CF);
         break;
+    case 0x68: // fflush
+    {
+        FILE *f = handles[cpuGetBX()];
+        if(!f)
+        {
+            cpuSetFlag(cpuFlag_CF);
+            dos_error = 6; // invalid handle
+            cpuSetAX(dos_error);
+            break;
+        }
+        fflush(f);
+        break;
+    }
     case 0x6C: // EXTENDED OPEN/CREATE FILE
     {
         unsigned cmod = cpuGetDX() & 0xFF;
