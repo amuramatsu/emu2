@@ -632,7 +632,8 @@ static void intr21_43(void)
 // Each DTA (Data Transfer Area) in memory can hold a find-first data
 // block. We simply encode our pointer in this area and use this struct
 // to hold the values.
-#define NUM_FIND_FIRST_DTA 64
+//#define NUM_FIND_FIRST_DTA 64
+#define NUM_FIND_FIRST_DTA 256
 static struct find_first_dta
 {
     // List of files to return and pointer to current.
@@ -2443,7 +2444,6 @@ int intr21(void)
                     handles[0] = stdin;
                 if(!handles[1])
                     handles[1] = stdout;
-                    handles[1] = stdout;
                 if(!handles[2])
                     handles[2] = stderr;
                 if(!handles[3])
@@ -2577,6 +2577,20 @@ int intr21(void)
                 }
             }
         } while (copied_only_psp);
+
+        // restore standard IO
+        if(!handles[0])
+            handles[0] = stdin;
+        if(!handles[1])
+            handles[1] = stdout;
+        if(!handles[2])
+            handles[2] = stderr;
+        if(!handles[3])
+            handles[3] = stderr;
+        if(!handles[4])
+            handles[4] = stderr;
+        for(int i = 0; i < 3; i++)
+            devinfo[i] = guess_devinfo(handles[i]);
         break;
     }
     case 0x4D: // GET RETURN CODE (ERRORLEVEL)
@@ -2715,13 +2729,15 @@ int intr21(void)
         }
 
         // Copy input path to output
-        meml_reads(path_addr, buf, 64);
-        buf[64 + 3] = 0;
+        meml_reads(path_addr, buf+3, sizeof(buf)-3);
+        buf[sizeof(buf)-1] = 0;
+        debug(debug_dos, "\t '%s' ", buf+3);
         int drive = dos_path_normalize((char *)(buf + 3), 127 - 3);
         buf[2] = '\\';
         buf[1] = ':';
         buf[0] = 'A' + drive;
         meml_writes(out_addr, buf, strlen((char *)buf)+1);
+        debug(debug_dos, "-> '%s'\n", buf);
 #else
         uint8_t *path_ptr = getptr(cpuGetAddrDS(cpuGetSI()), 64);
         uint8_t *out_ptr = getptr(cpuGetAddrES(cpuGetDI()), 128);
@@ -2734,12 +2750,15 @@ int intr21(void)
         }
 
         // Copy input path to output
-        memcpy(out_ptr + 3, path_ptr, 64);
-        out_ptr[64 + 3] = 0;
+        int i;
+        for (i = 0; path_ptr[i] && i < 128-3; i++)
+            (out_ptr + 3)[i] = path_ptr[i];
+        out_ptr[127] = 0;
         int drive = dos_path_normalize((char *)(out_ptr + 3), 127 - 3);
         out_ptr[2] = '\\';
         out_ptr[1] = ':';
         out_ptr[0] = 'A' + drive;
+        debug(debug_dos, "\t '%s' -> '%s'\n", path_ptr, out_ptr);
 #endif
         cpuClrFlag(cpuFlag_CF);
         cpuSetAX(0x5C);
