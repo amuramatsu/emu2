@@ -393,8 +393,10 @@ static void next_instruction(void)
     if(sregs[CS] == 0 && ip < 0x100) // Handle our BIOS codes
     {
         FETCH_B();
-        bios_routine(ip - 1);
-        do_instruction(0xCF);
+        if (bios_routine(ip - 1))
+            do_instruction(FETCH_B());
+        else
+            do_instruction(0xCF);
     }
     else
         do_instruction(FETCH_B());
