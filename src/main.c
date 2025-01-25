@@ -394,6 +394,9 @@ int main(int argc, char **argv)
     if(argc < 2)
         print_usage_error("program name expected.");
 
+    // Init debug facilities
+    init_debug(argv[1]);
+    
     // Allocate memory
     const char *memsize_str = getenv(ENV_MEMSIZE);
 #ifdef IA32
@@ -418,11 +421,9 @@ int main(int argc, char **argv)
     debug(debug_dos, "set MEMSIZE = %d\n", memsize);
     memory = malloc(memsize * 1024 * 1024);
     if(!memory)
-        print_error("cannot allocate memory %d MB\n", 16);
+        print_error("cannot allocate memory %d MB\n", memsize);
     memset(memory, 0, 1024*1024); // clear first 1MB
 
-    // Init debug facilities
-    init_debug(argv[1]);
     init_cpu();
 
     if(bin_load_addr >= 0)
