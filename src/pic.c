@@ -107,7 +107,7 @@ port_pic_read(unsigned port)
     }
     else if ((port & 0x0f) == 1) { // DATA
         debug(debug_port, "PIC %d read IMR (%08X)\n",
-              pic_idx, pic[pic_idx].ISR);
+              pic_idx, pic[pic_idx].IMR);
         return pic[pic_idx].IMR;
     }
     return 0xff;
@@ -271,12 +271,14 @@ handle_irq(void)
                         if (!pic[1].auto_eoi)
                             pic[1].ISR |= m;
                         debug(debug_int,
-                              " ->handle irq, irq=%d\n", slave_intr+8);
+                              " ->handle irq, irq=%d -> %02X\n",
+                              slave_intr+8, pic[1].irq_base + slave_intr);
                         cpu_hard_interrupt(pic[1].irq_base + slave_intr);
                     }
                 }
                 else {
-                    debug(debug_int, " ->handle irq irq=%d\n", i);
+                    debug(debug_int, " ->handle irq irq=%d -> %02X\n",
+                          i, pic[0].irq_base + i);
                     cpu_hard_interrupt(pic[0].irq_base + i);
                 }
                 break;
