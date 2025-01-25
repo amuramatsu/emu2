@@ -5,7 +5,7 @@
 #define IA32 1
 #include <../emu.h>
 
-extern void bios_routine(unsigned inum);
+extern int bios_routine(unsigned inum);
 extern void handle_irq(void);
 
 static void
@@ -15,7 +15,7 @@ debug_regs(void)
         return;
     debug(debug_cpu, "EAX=%08X EBX=%08X ECX=%08X EDX=%08X ",
           CPU_EAX, CPU_EBX, CPU_ECX, CPU_EDX);
-    debug(debug_cpu, "ESP=%04X EBP=%04X ESI=%04X EDI=%04X ",
+    debug(debug_cpu, "ESP=%08X EBP=%08X ESI=%08X EDI=%08X ",
           CPU_ESP, CPU_EBP, CPU_ESI, CPU_EDI);
     debug(debug_cpu, "DS=%04X ES=%04X FS=%04X GS=%04X SS=%04X CS=%04X EIP=%08X ",
           CPU_DS, CPU_ES, CPU_FS, CPU_GS, CPU_SS, CPU_CS, CPU_EIP);
@@ -81,8 +81,7 @@ emu2_hook(void)
         addr = CPU_EIP + (CPU_CS << 4);
         if(addr < 0x100)
         {
-            bios_routine(addr & 0xFF);
-            iret = 1;
+            iret = !bios_routine(addr & 0xFF);
         }
     }
     debug_regs();

@@ -7,7 +7,7 @@
 
 void init_dos(int argc, char **argv);
 NORETURN void intr20(void);
-void intr21(void);
+int intr21(void);
 void intr2f(void);
 NORETURN void intr22(void);
 void intr28(void);

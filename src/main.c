@@ -181,15 +181,18 @@ NORETURN static void intr19(void)
 }
 
 // DOS/BIOS interface
-void bios_routine(unsigned inum)
+// return value = 1, call by jmp
+// return value = 0, call by iret
+int bios_routine(unsigned inum)
 {
+    int ret = 0;
     if(inum >= 0x08 && inum <= 0x0f)
         pic_eoi(inum - 0x08);
     else if(inum >= 0x70 && inum <= 0x78)
         pic_eoi(inum - 0x70);
 
     if(inum == 0x21)
-        intr21();
+        ret = intr21();
     else if(inum == 0x20)
         intr20();
     else if(inum == 0x22)
@@ -237,6 +240,7 @@ void bios_routine(unsigned inum)
         farcall_entry();
     else
         debug(debug_int, "UNHANDLED INT %02x, AX=%04x\n", inum, cpuGetAX());
+    return ret;
 }
 
 static int load_binary_prog(const char *name, int bin_load_addr)

@@ -1289,8 +1289,9 @@ static uint8_t *copy_envblock(uint32_t addr, int *envlen)
 #endif
 
 // DOS int 21
-void intr21(void)
+int intr21(void)
 {
+    int ret = 0;
     // Check CP/M call, INT 21h from address 0x000C0
     if(cpuGetAddress(cpuGetStack(2), cpuGetStack(0)) == 0xC2)
     {
@@ -1309,7 +1310,7 @@ void intr21(void)
         intr21();
         // Restore AH
         cpuSetAX((old_ax & 0xFF00) | (cpuGetAX() & 0xFF));
-        return;
+        return ret;
     }
     debug(debug_int, "D-21%04X: BX=%04X\n", cpuGetAX(), cpuGetBX());
     if(debug_active(debug_dos))
@@ -1451,7 +1452,7 @@ void intr21(void)
         case 0x0A:
             cpuSetAX(ax << 8);
             intr21();
-            return;
+            return ret;
         }
         break;
     case 0x0E: // SELECT DEFAULT DRIVE
@@ -1928,7 +1929,7 @@ void intr21(void)
             cpuSetFlag(cpuFlag_CF);
             dos_error = 6; // invalid handle
             cpuSetAX(dos_error);
-            return;
+            return ret;
         }
         unsigned len = cpuGetCX();
         // If len=0, file is truncated at current position:
@@ -2074,7 +2075,7 @@ void intr21(void)
             cpuSetFlag(cpuFlag_CF);
             dos_error = 1;
             cpuSetAX(dos_error);
-            return;
+            return ret;
         }
         pos = ftell(f);
         cpuSetAX(pos & 0xFFFF);
@@ -2409,25 +2410,20 @@ void intr21(void)
                 dosDTA = get_current_PSP() * 16 + 0x80;
 
                 // Init DOS flags
-                cpuSetFlag(cpuFlag_IF);
-                cpuClrFlag(cpuFlag_DF);
-                cpuClrFlag(cpuFlag_TF);
-
-                // Push Flags, IP and CS
-                uint16_t flags = 0xf202;
-                put16(cpuGetAddress(cpuGetSS(), cpuGetSP()-2), flags);
-                put16(cpuGetAddress(cpuGetSS(), cpuGetSP()-4), cpuGetCS());
-                put16(cpuGetAddress(cpuGetSS(), cpuGetSP()-6), cpuGetIP());
-                cpuSetSP(cpuGetSP()-6);
+                cpuSetStartupFlag(cpuFlag_IF);
+                cpuClrStartupFlag(cpuFlag_DF);
+                cpuClrStartupFlag(cpuFlag_TF);
+#ifdef IA32
+                cpuClrStartupFlag(0xffff);
+                cpuClrStartupFlag(0xf202);
+#endif
 
                 // save return address to Int22 vector
                 put16(0x22 * 4, saveIP);
                 put16(0x22 * 4 + 2, saveCS);
 
-                // restore IP & CS
-                cpuSetIP(saveIP);
-                cpuSetCS(saveCS);
-
+                ret = 1; // return by jump
+                
                 struct exec_PSP *ep = malloc(sizeof(struct exec_PSP));
                 debug(debug_dos, "\tpush exec_PSP count\n");
                 ep->next = exec_psp_root;
@@ -2869,6 +2865,7 @@ void intr21(void)
         cpuSetFlag(cpuFlag_CF);
         cpuSetAX(ax & 0xFF00);
     }
+    return ret;
 }
 
 // DOS int 22 - TERMINATE ADDRESS
