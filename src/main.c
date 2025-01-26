@@ -143,6 +143,13 @@ static void intr15(void)
         cpuClrFlag(cpuFlag_CF);
         cpuSetAX(0x0000);
         cpuSetBX(cpuGetBX() & 0xFF00);
+        debug(debug_int, "S-15%04X\n", ax);
+    }
+    else if((ax & 0xFF00) == 0x8800)
+    {
+        cpuClrFlag(cpuFlag_CF);
+        cpuSetAX(0x0000);
+        debug(debug_int, "S-15%04X\n", ax);
     }
     else
         debug(debug_int, "UNHANDLED INT 15, AX=%04x\n", ax);
