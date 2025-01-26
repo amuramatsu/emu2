@@ -27,6 +27,12 @@
 #include "cpu.h"
 #include "ia32.mcr"
 
+void emu2_cpu_debugout(const char *, ...);
+#ifdef VERBOSE
+#undef VERBOSE
+#define VERBOSE(s) emu2_cpu_debugout s
+#endif
+
 const char *exception_str[EXCEPTION_NUM] = {
 	"DE_EXCEPTION",
 	"DB_EXCEPTION",

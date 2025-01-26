@@ -3035,6 +3035,16 @@ static void init_nls_data(void)
     put16(nls_dbc_set_table+dbcs_num*2, 0);
 }
 
+void install_dummy_handler(int inum)
+{
+    uint32_t hndl = get_static_memory(5, 1);
+    put8( hndl + 0, 0xea); // JMPF 0000:inum
+    put16(hndl + 1, inum); //
+    put16(hndl + 3, 0);    //
+    put16(inum*4 + 0, hndl & 0xF);
+    put16(inum*4 + 2, (hndl >> 4) & 0xFFFF);
+}
+
 void init_dos(int argc, char **argv)
 {
     char args[256], environ[4096];
@@ -3097,6 +3107,16 @@ void init_dos(int argc, char **argv)
         put8(i * 4 + 2, 0);
         put8(i * 4 + 3, 0);
     }
+    // Special hack for DOS/4GW
+    for(int i = 0x50; i < 0x60; i++)
+        put8(i * 4 + 0, 0x50);
+    // Special hack for IBM-PC detect
+    put8(0xdd * 4 + 0, 0xdc);
+
+    // install dummy handler for dos4gw support
+    install_dummy_handler(0x8);
+    install_dummy_handler(0x9);
+    install_dummy_handler(0x33);
 
     // Patch an INT 21 at address 0x000C0, this is for the CP/M emulation code
     put8(0x000C0, 0xCD);

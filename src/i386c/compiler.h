@@ -55,7 +55,12 @@ typedef int BOOL;
 #define _MALLOC(s,msg) malloc(s)
 #define _MFREE(p) free(p)
 
+#ifdef DEBUG_VERBOSE
+void emu2_cpu_debugout(const char *, ...);
+#define VERBOSE(s) emu2_cpu_debugout s
+#else
 #define VERBOSE(s)
+#endif
 #define TRACEOUT(s)
 
 #define msgbox(s1, s2) fprintf(stderr, "%s:%s\n", (s1), (s2))
