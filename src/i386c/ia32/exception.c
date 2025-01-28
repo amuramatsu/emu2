@@ -28,9 +28,13 @@
 #include "ia32.mcr"
 
 void emu2_cpu_debugout(const char *, ...);
+void emu2_int_debugout(const char *, ...);
 #ifdef VERBOSE
 #undef VERBOSE
-#define VERBOSE(s) emu2_cpu_debugout s
+#define VERBOSE(s) do {  \
+	emu2_cpu_debugout s; \
+	emu2_int_debugout s; \
+	} while (0/*CONSTCOND*/)
 #endif
 
 const char *exception_str[EXCEPTION_NUM] = {

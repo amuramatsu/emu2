@@ -252,7 +252,7 @@ ia32_panic(const char *str, ...)
 	pcstat.screendispflag = 0;
 	siglongjmp(exec_1step_jmpbuf, 2);
 #else
-	__ASSERT(0);
+	//__ASSERT(0);
 	exit(1);
 #endif
 }

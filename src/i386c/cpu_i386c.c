@@ -72,6 +72,22 @@ emu2_cpu_debugout(const char *format, ...)
 }
 
 void
+emu2_int_debugout(const char *format, ...)
+{
+    char buf[1024];
+    va_list ap;
+
+    if(!debug_active(debug_int))
+        return;
+
+    va_start(ap, format);
+    vsnprintf(buf, sizeof(buf), format, ap);
+    va_end(ap);
+    buf[sizeof(buf)-1] = 0;
+    debug(debug_int, "%s\n", buf);
+}
+
+void
 emu2_hook(void)
 {
     UINT32 addr;
