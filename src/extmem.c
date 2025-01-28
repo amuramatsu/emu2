@@ -56,7 +56,7 @@ uint32_t memory_mask = 0xFFFFF;
 uint32_t memory_limit = 0xFFFFF;
 
 static const uint8_t xms_entry_stub[] = {
-    0xcd, 0xff, // int 0ffh
+    0xcd, 0xfe, // int 0feh
     0xcb        // retf
 };
 

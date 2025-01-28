@@ -243,7 +243,7 @@ int bios_routine(unsigned inum)
     else if(use_ems && inum == 0x67)
         intr67();
 #endif
-    else if (inum == 0xFF) // farcall entry for XMS and etc. functions
+    else if (inum == 0xFE) // farcall entry for XMS and etc. functions
         farcall_entry();
     else
         debug(debug_int, "UNHANDLED INT %02x, AX=%04x\n", inum, cpuGetAX());
