@@ -149,7 +149,11 @@ static int get_new_sft(void)
     int i;
     for(i = 0; i < max_handles; i++)
         if(!filetable[i].count && !filetable[i].f)
+        {
+            debug(debug_dos, "create new sft %d\n", i);
+            filetable[i].count = 1;
             return i;
+        }
     return -1;
 }
 
@@ -166,16 +170,21 @@ static void get_new_handle(int *handle, int *sft_idx)
     if(!sft_idx)
     {
         *handle = (i == handle_num) ? -1 : i;
+        debug(debug_dos, "create new handle %d\n", i);
         return;
     }
     int sidx = get_new_sft();
     if(i == handle_num || sidx < 0)
-        *handle = *sft_idx = -1;
-    else
     {
-        *handle = i;
-        *sft_idx = sidx;
+        *handle = *sft_idx = -1;
+        debug(debug_dos, "no new handle or sft\n");
+        return;
     }
+    
+    *handle = i;
+    *sft_idx = sidx;
+    put8(jft_addr + i, sidx);
+    debug(debug_dos, "create new handle %d assigned with sft %d\n", i, sidx);
 }
 
 static int handle_to_sidx(int h)
@@ -207,8 +216,9 @@ static int dos_close_file(int h)
     int jft_addr = cpuGetAddress(get16(psp_addr + 0x36),
                                  get16(psp_addr + 0x34));
     put8(jft_addr + h, 0xff);
-    update_dos_sft(sidx, NULL);
     filetable[sidx].count--;
+    debug(debug_dos, "\tref. counter=%d\n", filetable[sidx].count);
+    update_dos_sft(sidx, NULL);
     if(filetable[sidx].count)
         return 0;
     filetable[sidx].f = NULL;
@@ -236,7 +246,7 @@ static void dos_close_allfile_owned(unsigned psp_seg)
 
 static void set_handle(int h, int sidx)
 {
-    assert(sidx >= 0 && filetable[sidx].f);
+    assert(sidx >= 0 && sidx <= max_handles && filetable[sidx].f);
     int psp_addr = get_current_PSP() * 16;
     //int handle_num = get16(psp_addr + 0x32);
     int jft_addr = cpuGetAddress(get16(psp_addr + 0x36), get16(psp_addr + 0x34));
@@ -373,7 +383,7 @@ static int dos_open_file(int create, int access_mode, int name_addr)
             return 0;
         }
     }
-    debug(debug_dos, "\topen '%s', '%s', %04x ", fname, mode, (unsigned)h);
+    debug(debug_dos, "\topen '%s', '%s', %04x\n", fname, mode, (unsigned)h);
 
     // TODO: should set file attributes in CX
     filetable[sidx].f = NULL;
@@ -392,7 +402,7 @@ static int dos_open_file(int create, int access_mode, int name_addr)
     {
         if(errno != ENOENT)
         {
-            debug(debug_dos, "%s.\n", strerror(errno));
+            debug(debug_dos, "\t->%s.\n", strerror(errno));
             dos_error = 5;
         }
         else
@@ -424,7 +434,7 @@ static int dos_open_file(int create, int access_mode, int name_addr)
     //handle_owners[h] = get_current_PSP(); JFT WRITE
 
     update_dos_sft(sidx, &st);
-    debug(debug_dos, "OK.\n");
+    debug(debug_dos, "\t->OK.\n");
     cpuClrFlag(cpuFlag_CF);
     cpuSetAX(h);
     dos_error = 0;
@@ -544,7 +554,7 @@ static int dos_rw_record_fcb(unsigned addr, int write, int update, int seq)
 {
     int sidx;
     get_fcb_handle(NULL, &sidx);
-    FILE *f = filetable[sidx].f;
+    FILE *f = (sidx < 0) ? NULL : filetable[sidx].f;
     if(!f)
     {
         dos_error = 6;
@@ -689,13 +699,15 @@ static void update_dos_sft(int sidx, const struct stat *st)
     uint8_t buf[0x4c];
     int attr, drive, name, size, timedate, start, len;
 
-    assert(sidx < 0 && sidx > max_handles);
+    debug(debug_dos, "\t\tupdate dos system file table %d\n", sidx);
+    assert(sidx >= 0 && sidx <= max_handles);
     if ((filetable[sidx].devinfo & 0xffe0) != 0) // check regular file or not
         return;
 
     switch(dos_major)
     {
     case 2:
+        debug(debug_dos, "\t\tDOS2 structure\n");
         attr     = 2;
         drive    = 3;
         name     = 4;
@@ -706,6 +718,7 @@ static void update_dos_sft(int sidx, const struct stat *st)
         break;
 
     case 3:
+        debug(debug_dos, "\t\tDOS3%s structure\n", dos_minor < 10 ? "0" : "1");
         attr  = 4;
         drive = 5;
         if (dos_minor < 10) /* DOS 3.0x */
@@ -719,6 +732,7 @@ static void update_dos_sft(int sidx, const struct stat *st)
         break;
 
     default: /* DOS 4 and up */
+        debug(debug_dos, "\t\tDOS4 structure\n");
         attr     = 4;
         drive    = 5;
         name     = 0x20;
@@ -729,13 +743,16 @@ static void update_dos_sft(int sidx, const struct stat *st)
     }
 
     memset(buf, 0, sizeof(buf));
-    if (filetable[sidx].f != 0)
+    if (filetable[sidx].count && filetable[sidx].f != 0)
     {
         struct stat _st;
         if(st == NULL)
         {
             if(fstat(fileno(filetable[sidx].f), &_st))
-                assert(1 == 0);
+            {
+                debug(debug_dos, "\t\t!!!FSTAT IS FAILED!!!\n");
+                return;
+            }
             st = &_st;
         }
         buf[0] = 1; // file count is byte (DOS2) or word (DOS3 above) but
@@ -769,7 +786,11 @@ static void update_dos_sft(int sidx, const struct stat *st)
         // because djgpp treat start cluster as inode
         buf[start] = st->st_ino & 0xff;
         buf[start+1] = (st->st_ino >> 8) & 0xff;
+
+        debug(debug_dos, "\t\tupdating done\n");
     }
+    else
+        debug(debug_dos, "\t\tclean up\n");
 
     uint32_t addr = DOS_SFT_BASE + 6 + sidx*len;
 #ifdef IA32
@@ -3369,8 +3390,8 @@ void init_dos(int argc, char **argv)
     put16(dos_sysvars + 22, 0x0080); // First MCB
     put16(dos_sysvars + 6, 0xffff); // OEM function header
     put16(dos_sysvars + 8, 0xffff); // OEM function header
-    put16(dos_sysvars + 28, 0xffff); // system file table
-    put16(dos_sysvars + 32, 0xffff); // system file table
+    put16(dos_sysvars + 28, DOS_SFT_BASE & 0xf); // system file table
+    put16(dos_sysvars + 32, DOS_SFT_BASE >> 4);  // system file table
     // NUL driver
     static const uint8_t null_device[] = {
         0xff, 0xff, 0x00, 0x00,

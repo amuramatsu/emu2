@@ -737,7 +737,7 @@ uint16_t create_PSP(const char *cmdline, const char *environment, uint16_t env_s
     for(int i = 0; i<255; i++)
         put8(env_seg * 16 + jft_offset + i, 0xFF);
 #else
-    memcpy(memory + env_seg * 16 + jft_offset, 0xFF, 255);
+    memset(memory + env_seg * 16 + jft_offset, 0xFF, 255);
 #endif
     dosPSP[52] = jft_offset & 0xFF;
     dosPSP[53] = (jft_offset >> 8) & 0xFF;
