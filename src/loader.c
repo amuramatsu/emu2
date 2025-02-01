@@ -624,7 +624,6 @@ VARn=zzz\0                  variable n
 \0                          environment end marker
 \1\0                        PROGNAME indicator
 PROGRAM_NAME\0              PROGRAM FULL PATH (max 64 byte)
-Job File Table (255 bytes)  : this is extended feature by emu2
  */
 
 // Creates main PSP
@@ -633,17 +632,20 @@ uint16_t create_PSP(const char *cmdline, const char *environment, uint16_t env_s
 {
     // Put environment before PSP and program name, use rounded up environment size:
     uint16_t max;
-    uint16_t env_mcb = mcb_alloc_new((env_size + 64 + 2 + 15 + 256) >> 4, 1, &max);
+    uint16_t env_mcb = mcb_alloc_new((env_size + 64 + 2 + 15) >> 4, 1, &max);
+    // Creates JFT table
+    uint16_t jft_mcb = mcb_alloc_new(16, 1, &max);
     // Creates a mcb to hold the PSP and the loaded program
     uint16_t psp_mcb = mcb_alloc_new(16, 1, &max);
 
-    if(!env_mcb || !psp_mcb)
+    if(!env_mcb || !jft_mcb || !psp_mcb)
     {
         debug(debug_dos, "not enough memory for new PSP and environment");
         return 0;
     }
 
     uint16_t env_seg = env_mcb + 1;
+    uint16_t jft_seg = jft_mcb + 1;
     uint16_t psp_seg = psp_mcb + 1;
     current_PSP = psp_seg;
 
@@ -662,6 +664,7 @@ uint16_t create_PSP(const char *cmdline, const char *environment, uint16_t env_s
 
     // Fill MCB owners:
     mcb_set_owner(env_mcb, psp_seg);
+    mcb_set_owner(jft_mcb, psp_seg);
     mcb_set_owner(psp_mcb, psp_seg);
 
 #ifdef IA32
@@ -697,7 +700,11 @@ uint16_t create_PSP(const char *cmdline, const char *environment, uint16_t env_s
     dosPSP[44] = 0xFF & env_seg;        // 2C: environment segment
     dosPSP[45] = 0xFF & (env_seg >> 8); //
     dosPSP[50] = 0xFF;                  // 32: max file handle
-    dosPSP[51] = 0x00;                  // 
+    dosPSP[51] = 0x00;                  //
+    dosPSP[52] = 0x00;                  // 34: ptr to JFT
+    dosPSP[53] = 0x00;                  //
+    dosPSP[54] = 0xFF & jft_seg;        //
+    dosPSP[55] = 0xFF & (jft_seg >> 8); //
     dosPSP[80] = 0xCD;                  // 50: INT 21h / RETF
     dosPSP[81] = 0x21;                  //
     dosPSP[82] = 0xCB;                  //
@@ -715,8 +722,6 @@ uint16_t create_PSP(const char *cmdline, const char *environment, uint16_t env_s
 #endif
     // Then, a word == 1
     put16(env_seg * 16 + env_size, 1);
-    put8(env_seg * 16 + env_size + 1, 0); // null terminator
-    int jft_offset = env_size + 3;
     // And the program name
     if(progname)
     {
@@ -730,23 +735,14 @@ uint16_t create_PSP(const char *cmdline, const char *environment, uint16_t env_s
         memcpy(memory + env_seg * 16 + env_size + 2, progname, l);
         *(memory + env_seg * 16 + env_size + 2 + l) = 0;
 #endif
-        jft_offset = env_size + 3 + l;
     }
-    // Clear JFT
-#ifdef IA32
-    for(int i = 0; i<255; i++)
-        put8(env_seg * 16 + jft_offset + i, 0xFF);
-#else
-    memset(memory + env_seg * 16 + jft_offset, 0xFF, 255);
-#endif
-    dosPSP[52] = jft_offset & 0xFF;
-    dosPSP[53] = (jft_offset >> 8) & 0xFF;
-    dosPSP[54] = env_seg & 0xFF;
-    dosPSP[55] = (env_seg >> 8) & 0xFF;
     cmdline_to_fcb(cmdline, dosPSP + 0x5C, dosPSP + 0x6C);
 #ifdef IA32
     meml_writes(psp_seg * 16, dosPSP, 256);
 #endif
+    // Clear JFT
+    for(int i = 0; i<255; i++)
+        put8(jft_seg * 16 + i, 0xFF);
     return psp_mcb;
 }
 
