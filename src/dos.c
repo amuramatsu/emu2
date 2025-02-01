@@ -157,24 +157,28 @@ static int get_new_sft(void)
     return -1;
 }
 
-static void get_new_handle(int *handle, int *sft_idx)
+static uint32_t get_jft_addr(unsigned cur_psp)
 {
     unsigned psp_addr = get_current_PSP() * 16;
-    int handle_num = get16(psp_addr + 0x32);
-    int jft_addr = cpuGetAddress(get16(psp_addr + 0x36),
-                                 get16(psp_addr + 0x34));
+    return cpuGetAddress(get16(psp_addr + 0x36),
+                         get16(psp_addr + 0x34));
+}
+
+static void get_new_handle(int *handle, int *sft_idx)
+{
+    uint32_t jft_addr = get_jft_addr(get_current_PSP());
     int i;
-    for(i = 0; i < handle_num; i++)
+    for(i = 0; i < max_handles; i++)
         if (get8(jft_addr + i) == 0xFF)
             break;
     if(!sft_idx)
     {
-        *handle = (i == handle_num) ? -1 : i;
+        *handle = (i == max_handles) ? -1 : i;
         debug(debug_dos, "create new handle %d\n", i);
         return;
     }
     int sidx = get_new_sft();
-    if(i == handle_num || sidx < 0)
+    if(i == max_handles || sidx < 0)
     {
         *handle = *sft_idx = -1;
         debug(debug_dos, "no new handle or sft\n");
@@ -189,11 +193,8 @@ static void get_new_handle(int *handle, int *sft_idx)
 
 static int handle_to_sidx(int h)
 {
-    unsigned psp_addr = get_current_PSP() * 16;
-    int handle_num = get16(psp_addr + 0x32);
-    int jft_addr = cpuGetAddress(get16(psp_addr + 0x36),
-                                 get16(psp_addr + 0x34));
-    if(h > handle_num)
+    uint32_t jft_addr = get_jft_addr(get_current_PSP());
+    if(h > max_handles)
         return -1;
     int idx = get8(jft_addr + h);
     if(idx == 0xff)
@@ -203,21 +204,23 @@ static int handle_to_sidx(int h)
 
 static int dos_close_file(int h)
 {
+    uint32_t jft_addr = get_jft_addr(get_current_PSP());
     int sidx = handle_to_sidx(h);
     FILE *f = (sidx < 0) ? NULL : filetable[sidx].f;
     if(!f)
     {
+        put8(jft_addr + h, 0xff);
+        if(sidx >= 0)
+            filetable[sidx].count = 0;
         cpuSetFlag(cpuFlag_CF);
         cpuSetAX(6);
         dos_error = 6;
         return -1;
     }
-    unsigned psp_addr = get_current_PSP() * 16;
-    int jft_addr = cpuGetAddress(get16(psp_addr + 0x36),
-                                 get16(psp_addr + 0x34));
     put8(jft_addr + h, 0xff);
-    filetable[sidx].count--;
-    debug(debug_dos, "\tref. counter=%d\n", filetable[sidx].count);
+    if(filetable[sidx].count)
+        filetable[sidx].count--;
+    debug(debug_dos, "\tsft %d, ref. counter=%d\n", sidx, filetable[sidx].count);
     update_dos_sft(sidx, NULL);
     if(filetable[sidx].count)
         return 0;
@@ -228,28 +231,25 @@ static int dos_close_file(int h)
     if(f == stdin || f == stdout || f == stderr)
         return 0; // Never close standard streams
     fclose(f);
+    debug(debug_dos, "\tsft %d is deallocated\n", sidx);
     return 0;
 }
 
 static void dos_close_allfile_owned(unsigned psp_seg)
 {
-    unsigned psp_addr = get_current_PSP() * 16;
-    int handle_num = get16(psp_addr + 0x32);
-    int jft_addr = cpuGetAddress(get16(psp_addr + 0x36), get16(psp_addr + 0x34));
-    for(int i = 0; i < handle_num; i++)
+    uint32_t jft_addr = get_jft_addr(get_current_PSP());
+    for(int i = 0; i < max_handles; i++)
     {
         int n = get8(jft_addr + i);
         if(n != 0xff)
-            dos_close_file(n);
+            dos_close_file(i);
     }
 }
 
 static void set_handle(int h, int sidx)
 {
     assert(sidx >= 0 && sidx <= max_handles && filetable[sidx].f);
-    int psp_addr = get_current_PSP() * 16;
-    //int handle_num = get16(psp_addr + 0x32);
-    int jft_addr = cpuGetAddress(get16(psp_addr + 0x36), get16(psp_addr + 0x34));
+    uint32_t jft_addr = get_jft_addr(get_current_PSP());
     int prev_sidx = get8(jft_addr + h) * 0xFF;
     if(prev_sidx != 0xff)
         dos_close_file(h);
@@ -264,6 +264,8 @@ static void init_jft(unsigned psp)
         put8(tgt + i, i);
     for(int i = 5; i < max_handles; i++)
         put8(tgt + i, 0xFF);
+    for(int i = 0; i < 5; i++)
+        filetable[i].count++;
 }
 
 static void copy_jft(unsigned psp, uint32_t orig)
@@ -415,6 +417,7 @@ static int dos_open_file(int create, int access_mode, int name_addr)
         free(fname);
         return 0;
     }
+    debug(debug_dos, "\t\tsft %d bound to %s\n", sidx, fname);
     // Set device info:
     if(!strcmp(fname, "/dev/null"))
         filetable[h].devinfo = 0x80C4;
@@ -431,7 +434,6 @@ static int dos_open_file(int create, int access_mode, int name_addr)
     else
         filetable[h].devinfo = 0x0000 + dos_get_default_drive();
     make_fcbname((char *)filetable[h].dosname, getstr(name_addr, 128));
-    //handle_owners[h] = get_current_PSP(); JFT WRITE
 
     update_dos_sft(sidx, &st);
     debug(debug_dos, "\t->OK.\n");
