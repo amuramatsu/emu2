@@ -636,7 +636,9 @@ uint16_t create_PSP(const char *cmdline, const char *environment, uint16_t env_s
     // Creates JFT table
     uint16_t jft_mcb = mcb_alloc_new(16, 1, &max);
     // Creates a mcb to hold the PSP and the loaded program
-    uint16_t psp_mcb = mcb_alloc_new(16, 1, &max);
+    uint16_t psp_mcb = mcb_alloc_new(0xFFFF, 1, &max);
+    if(!psp_mcb)
+        psp_mcb = mcb_alloc_new(max, 1, &max);
 
     if(!env_mcb || !jft_mcb || !psp_mcb)
     {
@@ -915,7 +917,7 @@ int dos_load_exe(FILE *f, uint16_t psp_mcb)
     uint16_t psp_sz = mcb_resize(psp_mcb, max_sz);
     if(psp_sz < min_sz && psp_sz < max_sz)
     {
-        debug(debug_dos, "\texe read, not enough memory!\n");
+        debug(debug_dos, "\texe read, not enough memory! (need:%d) (actual:%d)\n", min_sz, psp_sz);
         return 0;
     }
 
