@@ -6,7 +6,7 @@
 #include <string.h>
 #include <stdlib.h>
 
-#define EMB_EMB_BASE  (0x110000) /* AFTER HMA region */
+#define XMS_EMB_BASE  (0x110000) /* AFTER HMA region */
 
 enum XMM_STAUTS {
     XMM_STATUS_SUCCESS = 0x00,
@@ -136,6 +136,20 @@ merge_free_region(int *free_total, int *free_max)
         *free_total = total;
     if (free_max)
         *free_max = max;
+    debug(debug_int, "\t  freemerge: max: %d, total: %d\n", max, total);
+}
+
+static void
+emb_sanity_check()
+{
+    struct emb_data *p = EMB_DATA_ROOT;
+    while (p) {
+        debug(debug_int, "\tHANDLE %04X, lock %d, range : %08X - %08X\n",
+              p->handle, p->locked,
+              p->emb_offset*1024 + XMS_EMB_BASE,
+              (p->emb_offset + p->kb_size)*1024 + XMS_EMB_BASE - 1);
+        p = p->next;
+    }
 }
 
 void
@@ -301,6 +315,7 @@ xms_farcall(void)
                 }
 
                 newdata->handle = ++emb_lasthandle;
+                debug(debug_int, "  allocmem: HANDLE %04X, addr %08X, size %dkb\n", newdata->handle, XMS_EMB_BASE + newdata->emb_offset*1024, newdata->kb_size);
                 cpuSetDX(emb_lasthandle);
                 bl = XMM_STATUS_SUCCESS;
                 cpuSetAX(0x0001);
@@ -358,7 +373,7 @@ xms_farcall(void)
                         cpuSetAX(0x0000);
                         break;
                     }
-                    src_addr += EMB_EMB_BASE + p->emb_offset * 1024;
+                    src_addr += XMS_EMB_BASE + p->emb_offset * 1024;
                 }
 
                 if (dst_hndl == 0) // Conventional Mem
@@ -375,7 +390,7 @@ xms_farcall(void)
                         cpuSetAX(0x0000);
                         break;
                     }
-                    dst_addr += EMB_EMB_BASE + p->emb_offset * 1024;
+                    dst_addr += XMS_EMB_BASE + p->emb_offset * 1024;
                 }
                 if (src_addr > dst_addr && src_addr < dst_addr + len) {
                     bl = XMM_STATUS_EMB_MOVE_OVERLAP;
@@ -396,7 +411,7 @@ xms_farcall(void)
                     cpuSetAX(0x0000);
                     break;
                 }
-                uint32_t addr = EMB_EMB_BASE + p->emb_offset*1024;
+                uint32_t addr = XMS_EMB_BASE + p->emb_offset*1024;
                 cpuSetDX(addr >> 16);
                 cpuSetBX(addr & 0xFFFF);
 
@@ -521,8 +536,8 @@ xms_farcall(void)
                             bl = XMM_STATUS_EMB_MEM_ALL_ALLOCATED;
                             cpuSetAX(0x0000);
                         }
-                        memcpy(memory+EMB_EMB_BASE+ 1024*newdata->emb_offset,
-                               memory+EMB_EMB_BASE+ 1024*p->emb_offset,
+                        memcpy(memory+XMS_EMB_BASE+ 1024*newdata->emb_offset,
+                               memory+XMS_EMB_BASE+ 1024*p->emb_offset,
                                p->kb_size);
                         newdata->handle = p->handle;
                         p->handle = 0;
@@ -555,6 +570,8 @@ xms_farcall(void)
 
     // set return code
     cpuSetBX((cpuGetBX() & 0xFF00) | bl);
+    if(debug_active(debug_int))
+        emb_sanity_check();
 }
 
 uint32_t
@@ -582,7 +599,7 @@ init_xms(int maxmem)
     if (!EMB_DATA_ROOT)
         return 0;
     memset(EMB_DATA_ROOT, 0, sizeof(struct emb_data));
-    EMB_DATA_ROOT->kb_size = maxmem*1024 - EMB_EMB_BASE/1024;
+    EMB_DATA_ROOT->kb_size = maxmem*1024 - XMS_EMB_BASE/1024;
     memory_limit = maxmem*1024*1024 - 1;
     
     return 1;
