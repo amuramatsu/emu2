@@ -14,7 +14,7 @@
 #include <termios.h>
 #include <unistd.h>
 
-#define TOPVIEW_BUFFER_ADDR 0xB0000
+#define TOPVIEW_BUFFER_ADDR 0xC0000
 
 // Color cell: une byte for the value and one for the color
 union term_cell

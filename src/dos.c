@@ -3385,7 +3385,7 @@ void init_dos(int argc, char **argv)
     if(getenv(ENV_LOWMEM))
         mcb_init(0x80, 0x7FFF);
     else
-        mcb_init(0x80, 0xA000);
+        mcb_init(0x80, 0xB800);
 
     // Init SYSVARS
     dos_sysvars = get_static_memory(128, 0);
