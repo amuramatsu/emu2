@@ -13,6 +13,7 @@
 #include "ems.h"
 #include "extmem.h"
 
+#include <assert.h>
 #include <errno.h>
 #include <fcntl.h>
 #include <signal.h>
@@ -90,10 +91,16 @@ struct exec_PSP {
 struct exec_PSP *exec_psp_root = NULL;
 
 // DOS file handles
-#define max_handles (0x10000)
-static FILE *handles[max_handles];
-static uint16_t devinfo[max_handles];
-static unsigned handle_owners[max_handles];
+#define max_handles (0xff)
+static struct filetable {
+    FILE *f;
+    uint16_t devinfo;
+    uint8_t dosname[11];
+    int count;
+} filetable[max_handles];
+
+#define DOS_SFT_BASE  0x0f8000
+static void update_dos_sft(int sidx, const struct stat *st);
 
 static uint16_t guess_devinfo(FILE *f)
 {
@@ -110,56 +117,169 @@ static uint16_t guess_devinfo(FILE *f)
 
 static void init_handles(void)
 {
-    handles[0] = stdin;
-    handles[1] = stdout;
-    handles[2] = stderr;
-    handles[3] = stderr; // AUX
-    handles[4] = stderr; // PRN
+    filetable[0].f = stdin;
+    filetable[1].f = stdout;
+    filetable[2].f = stderr;
+    filetable[3].f = stderr; // AUX
+    filetable[4].f = stderr; // PRN
     // stdin,stdout,stderr: special, eof on input, is device
-    for(int i = 0; i < 3; i++)
-        devinfo[i] = guess_devinfo(handles[i]);
     for(int i = 0; i < 5; i++)
-        handle_owners[i] = 0;
+        filetable[i].devinfo = guess_devinfo(filetable[i].f);
 }
 
-static int get_new_handle(void)
+static void restore_handles(void)
+{
+    // restore standard IO
+    if(!filetable[0].f)
+        filetable[0].f = stdin;
+    if(!filetable[1].f)
+        filetable[1].f = stdout;
+    if(!filetable[2].f)
+        filetable[2].f = stderr;
+    if(!filetable[3].f)
+        filetable[3].f = stderr;
+    if(!filetable[4].f)
+        filetable[4].f = stderr;
+    for(int i = 0; i < 3; i++)
+        filetable[i].devinfo = guess_devinfo(filetable[i].f);
+}
+
+static int get_new_sft(void)
 {
     int i;
     for(i = 0; i < max_handles; i++)
-        if(!handles[i])
+        if(!filetable[i].count && !filetable[i].f)
+        {
+            debug(debug_dos, "create new sft %d\n", i);
+            filetable[i].count = 1;
             return i;
+        }
     return -1;
+}
+
+static uint32_t get_jft_addr(unsigned cur_psp)
+{
+    unsigned psp_addr = get_current_PSP() * 16;
+    return cpuGetAddress(get16(psp_addr + 0x36),
+                         get16(psp_addr + 0x34));
+}
+
+static void get_new_handle(int *handle, int *sft_idx)
+{
+    uint32_t jft_addr = get_jft_addr(get_current_PSP());
+    int i;
+    for(i = 0; i < max_handles; i++)
+        if (get8(jft_addr + i) == 0xFF)
+            break;
+    if(!sft_idx)
+    {
+        *handle = (i == max_handles) ? -1 : i;
+        debug(debug_dos, "create new handle %d\n", i);
+        return;
+    }
+    int sidx = get_new_sft();
+    if(i == max_handles || sidx < 0)
+    {
+        *handle = *sft_idx = -1;
+        debug(debug_dos, "no new handle or sft\n");
+        return;
+    }
+    
+    *handle = i;
+    *sft_idx = sidx;
+    put8(jft_addr + i, sidx);
+    debug(debug_dos, "create new handle %d assigned with sft %d\n", i, sidx);
+}
+
+static int handle_to_sidx(int h)
+{
+    uint32_t jft_addr = get_jft_addr(get_current_PSP());
+    if(h > max_handles)
+        return -1;
+    int idx = get8(jft_addr + h);
+    if(idx == 0xff)
+        return -1;
+    return idx;
 }
 
 static int dos_close_file(int h)
 {
-    FILE *f = handles[h];
+    uint32_t jft_addr = get_jft_addr(get_current_PSP());
+    int sidx = handle_to_sidx(h);
+    FILE *f = (sidx < 0) ? NULL : filetable[sidx].f;
     if(!f)
     {
+        put8(jft_addr + h, 0xff);
+        if(sidx >= 0)
+            filetable[sidx].count = 0;
         cpuSetFlag(cpuFlag_CF);
         cpuSetAX(6);
         dos_error = 6;
         return -1;
     }
-    handles[h] = 0;
-    devinfo[h] = 0;
-    handle_owners[h] = 0;
+    put8(jft_addr + h, 0xff);
+    if(filetable[sidx].count)
+        filetable[sidx].count--;
+    debug(debug_dos, "\tsft %d, ref. counter=%d\n", sidx, filetable[sidx].count);
+    update_dos_sft(sidx, NULL);
+    if(filetable[sidx].count)
+        return 0;
+    filetable[sidx].f = NULL;
+    filetable[sidx].devinfo = 0;
     cpuClrFlag(cpuFlag_CF);
-    for(int i = 0; i < max_handles; i++)
-        if(handles[i] == f)
-            return 0; // Still referenced, don't really close
+    dos_error = 0;
     if(f == stdin || f == stdout || f == stderr)
         return 0; // Never close standard streams
     fclose(f);
-    dos_error = 0;
+    debug(debug_dos, "\tsft %d is deallocated\n", sidx);
     return 0;
 }
 
 static void dos_close_allfile_owned(unsigned psp_seg)
 {
+    uint32_t jft_addr = get_jft_addr(get_current_PSP());
     for(int i = 0; i < max_handles; i++)
-        if(handles[i] && handle_owners[i] == psp_seg)
+    {
+        int n = get8(jft_addr + i);
+        if(n != 0xff)
             dos_close_file(i);
+    }
+}
+
+static void set_handle(int h, int sidx)
+{
+    assert(sidx >= 0 && sidx <= max_handles && filetable[sidx].f);
+    uint32_t jft_addr = get_jft_addr(get_current_PSP());
+    int prev_sidx = get8(jft_addr + h) * 0xFF;
+    if(prev_sidx != 0xff)
+        dos_close_file(h);
+    filetable[sidx].count++;
+    put8(jft_addr + h, sidx);
+}
+
+static void init_jft(unsigned psp)
+{
+    uint32_t tgt = cpuGetAddress(get16(psp*16 + 0x36), get16(psp*16 + 0x34));
+    for(int i = 0; i < 5; i++)
+        put8(tgt + i, i);
+    for(int i = 5; i < max_handles; i++)
+        put8(tgt + i, 0xFF);
+    for(int i = 0; i < 5; i++)
+        filetable[i].count++;
+}
+
+static void copy_jft(unsigned psp, uint32_t orig)
+{
+    uint32_t tgt = cpuGetAddress(get16(psp*16 + 0x36), get16(psp*16 + 0x34));
+    for(int i =0; i < max_handles; i++)
+    {
+        int sidx = get8(orig + i) & 0xff;
+        if(sidx != 0xff && !filetable[sidx].f)
+            sidx = 0xff;
+        if(sidx != 0xff)
+            filetable[sidx].count++;
+        put8(tgt + i, sidx);
+    }
 }
 
 static void create_dir(void)
@@ -218,7 +338,8 @@ static void remove_dir(void)
 
 static int dos_open_file(int create, int access_mode, int name_addr)
 {
-    int h = get_new_handle();
+    int h, sidx;
+    get_new_handle(&h, &sidx);
     if(h < 0)
     {
         dos_error = 4;
@@ -264,26 +385,26 @@ static int dos_open_file(int create, int access_mode, int name_addr)
             return 0;
         }
     }
-    debug(debug_dos, "\topen '%s', '%s', %04x ", fname, mode, (unsigned)h);
+    debug(debug_dos, "\topen '%s', '%s', %04x\n", fname, mode, (unsigned)h);
 
     // TODO: should set file attributes in CX
-    handles[h] = 0;
+    filetable[sidx].f = NULL;
     int fd = open(fname, mflag, 0666);
+    struct stat st;
     if(fd != -1)
     {
         // Check if we opened a directory and fail
-        struct stat st;
         if(0 != fstat(fd, &st) || S_ISDIR(st.st_mode))
             close(fd);
         else
-            handles[h] = fdopen(fd, mode);
+            filetable[sidx].f = fdopen(fd, mode);
     }
 
-    if(!handles[h])
+    if(!filetable[sidx].f)
     {
         if(errno != ENOENT)
         {
-            debug(debug_dos, "%s.\n", strerror(errno));
+            debug(debug_dos, "\t->%s.\n", strerror(errno));
             dos_error = 5;
         }
         else
@@ -296,23 +417,26 @@ static int dos_open_file(int create, int access_mode, int name_addr)
         free(fname);
         return 0;
     }
+    debug(debug_dos, "\t\tsft %d bound to %s\n", sidx, fname);
     // Set device info:
     if(!strcmp(fname, "/dev/null"))
-        devinfo[h] = 0x80C4;
+        filetable[h].devinfo = 0x80C4;
     else if(!strcmp(fname, "/dev/tty"))
-        devinfo[h] = 0x80D3;
+        filetable[h].devinfo = 0x80D3;
     else if(get8(name_addr + 1) == ':')
     {
         uint8_t c = get8(name_addr);
         c = (c >= 'a') ? c - 'a' : c - 'A';
         if(c > 26)
             c = dos_get_default_drive();
-        devinfo[h] = 0x0000 + c;
+        filetable[h].devinfo = 0x0000 + c;
     }
     else
-        devinfo[h] = 0x0000 + dos_get_default_drive();
-    handle_owners[h] = get_current_PSP();
-    debug(debug_dos, "OK.\n");
+        filetable[h].devinfo = 0x0000 + dos_get_default_drive();
+    make_fcbname((char *)filetable[h].dosname, getstr(name_addr, 128));
+
+    update_dos_sft(sidx, &st);
+    debug(debug_dos, "\t->OK.\n");
     cpuClrFlag(cpuFlag_CF);
     cpuSetAX(h);
     dos_error = 0;
@@ -331,9 +455,13 @@ static int get_fcb(void)
     return get8(fcb) == 255 ? fcb + 7 : fcb;
 }
 
-static int get_fcb_handle(void)
+static void get_fcb_handle(int *h, int *sidx)
 {
-    return get16(0x18 + get_fcb());
+    int handle = get16(0x18 + get_fcb());
+    if (h)
+        *h = handle;
+    if (sidx)
+        *sidx = handle_to_sidx(handle);
 }
 
 static void dos_show_fcb(void)
@@ -353,7 +481,8 @@ static void dos_show_fcb(void)
 
 static void dos_open_file_fcb(int create)
 {
-    int h = get_new_handle();
+    int h, sidx;
+    get_new_handle(&h, &sidx);
     if(h < 0)
     {
         dos_error = 4;
@@ -373,8 +502,8 @@ static void dos_open_file_fcb(int create)
     }
     const char *mode = create ? "w+b" : "r+b";
     debug(debug_dos, "\topen fcb '%s', '%s', %04x ", fname, mode, (unsigned)h);
-    handles[h] = fopen(fname, mode);
-    if(!handles[h])
+    filetable[sidx].f = fopen(fname, mode);
+    if(!filetable[sidx].f)
     {
         dos_error = 4;
         debug(debug_dos, "%s.\n", strerror(errno));
@@ -383,11 +512,10 @@ static void dos_open_file_fcb(int create)
         free(fname);
         return;
     }
-    handle_owners[h] = get_current_PSP();
     // Get file size
-    fseek(handles[h], 0, SEEK_END);
-    long sz = ftell(handles[h]);
-    fseek(handles[h], 0, SEEK_SET);
+    fseek(filetable[sidx].f, 0, SEEK_END);
+    long sz = ftell(filetable[sidx].f);
+    fseek(filetable[sidx].f, 0, SEEK_SET);
     // Set FCB info:
     put16(fcb_addr + 0x0C, 0);   // block number
     put16(fcb_addr + 0x0E, 128); // record size
@@ -403,6 +531,7 @@ static void dos_open_file_fcb(int create)
     put8(fcb_addr + 0x23, 0);
 #endif
 
+    update_dos_sft(sidx, NULL);
     debug(debug_dos, "OK.\n");
     cpuClrFlag(cpuFlag_CF);
     cpuSetAL(0x00);
@@ -425,7 +554,9 @@ static void dos_seq_to_rand_fcb(int fcb)
 
 static int dos_rw_record_fcb(unsigned addr, int write, int update, int seq)
 {
-    FILE *f = handles[get_fcb_handle()];
+    int sidx;
+    get_fcb_handle(NULL, &sidx);
+    FILE *f = (sidx < 0) ? NULL : filetable[sidx].f;
     if(!f)
     {
         dos_error = 6;
@@ -523,6 +654,7 @@ static int dos_rw_record_fcb(unsigned addr, int write, int update, int seq)
         free(buf);
     }
 #endif
+    update_dos_sft(sidx, NULL);
     if(n == rsize)
         return 0; // read/write full record
     else if(!n || write)
@@ -560,6 +692,114 @@ static int get_attributes(mode_t md)
     if(0 == (md & (S_IWOTH | S_IWGRP | S_IWUSR)))
         r |= 1 << 0; // READ_ONLY
     return r;
+}
+
+static void update_dos_sft(int sidx, const struct stat *st)
+{
+    int dos_major = dosver & 0x0f;
+    int dos_minor = (dosver >> 8) & 0xff;
+    uint8_t buf[0x4c];
+    int attr, drive, name, size, timedate, start, len;
+
+    debug(debug_dos, "\t\tupdate dos system file table %d\n", sidx);
+    assert(sidx >= 0 && sidx <= max_handles);
+    if ((filetable[sidx].devinfo & 0xffe0) != 0) // check regular file or not
+        return;
+
+    switch(dos_major)
+    {
+    case 2:
+        debug(debug_dos, "\t\tDOS2 structure\n");
+        attr     = 2;
+        drive    = 3;
+        name     = 4;
+        size     = 0x13;
+        timedate = 0x17;
+        start    = 0x1c;
+        len      = 0x28;
+        break;
+
+    case 3:
+        debug(debug_dos, "\t\tDOS3%s structure\n", dos_minor < 10 ? "0" : "1");
+        attr  = 4;
+        drive = 5;
+        if (dos_minor < 10) /* DOS 3.0x */
+            name = 0x21;
+        else
+            name = 0x20;
+        size     = 0x11;
+        timedate = 0x0d;
+        start    = 0x0b;
+        len      = 0x35;
+        break;
+
+    default: /* DOS 4 and up */
+        debug(debug_dos, "\t\tDOS4 structure\n");
+        attr     = 4;
+        drive    = 5;
+        name     = 0x20;
+        size     = 0x11;
+        timedate = 0x03;
+        start    = 0x0b;
+        len      = 0x3b;
+    }
+
+    memset(buf, 0, sizeof(buf));
+    if (filetable[sidx].count && filetable[sidx].f != 0)
+    {
+        struct stat _st;
+        if(st == NULL)
+        {
+            if(fstat(fileno(filetable[sidx].f), &_st))
+            {
+                debug(debug_dos, "\t\t!!!FSTAT IS FAILED!!!\n");
+                return;
+            }
+            st = &_st;
+        }
+        buf[0] = 1; // file count is byte (DOS2) or word (DOS3 above) but
+        buf[1] = 0; // treat as always word
+        buf[attr]  = get_attributes(st->st_mode);
+        buf[drive] = filetable[sidx].devinfo & 0x1f;
+        // copy name
+        memcpy(buf + name, filetable[sidx].dosname, 11);
+        if(st->st_size > 0xffffffff)
+        {
+            buf[size] = 0xff;
+            buf[size+1] = 0xff;
+            buf[size+2] = 0xff;
+            buf[size+3] = 0xff;
+        }
+        else
+        {
+            buf[size] = st->st_size & 0xff;
+            buf[size+1] = (st->st_size >> 8) & 0xff;
+            buf[size+2] = (st->st_size >> 16) & 0xff;
+            buf[size+3] = (st->st_size >> 24) & 0xff;
+        }
+
+        uint32_t t = get_time_date(st->st_mtime);
+        buf[timedate] = t & 0xff;
+        buf[timedate+1] = (t >> 8) & 0xff;
+        buf[timedate+2] = (t >> 16) & 0xff;
+        buf[timedate+3] = (t >> 24) & 0xff;
+
+        // i-node is stored at start cluster field,
+        // because djgpp treat start cluster as inode
+        buf[start] = st->st_ino & 0xff;
+        buf[start+1] = (st->st_ino >> 8) & 0xff;
+
+        debug(debug_dos, "\t\tupdating done\n");
+    }
+    else
+        debug(debug_dos, "\t\tclean up\n");
+
+    uint32_t addr = DOS_SFT_BASE + 6 + sidx*len;
+#ifdef IA32
+    meml_writes(addr, buf, len);
+#else
+    memcpy(memory + addr, buf, len);
+#endif
 }
 
 // DOS int 21, ah=43
@@ -623,6 +863,7 @@ static void intr21_43(void)
         free(fname);
         return;
     }
+    //getstr(dname); /XXX
     cpuSetFlag(cpuFlag_CF);
     dos_error = 0;
     cpuSetAX(1);
@@ -841,7 +1082,8 @@ static void dos_find_first_fcb(void)
 static void intr21_57(void)
 {
     unsigned al = cpuGetAX() & 0xFF;
-    FILE *f = handles[cpuGetBX()];
+    int sidx = handle_to_sidx(cpuGetBX());
+    FILE *f = (sidx < 0) ? NULL : filetable[sidx].f;
     if(!f)
     {
         cpuSetFlag(cpuFlag_CF);
@@ -860,6 +1102,7 @@ static void intr21_57(void)
             cpuSetAX(dos_error);
             return;
         }
+        update_dos_sft(sidx, &st);
         dos_error = 0;
         cpuClrFlag(cpuFlag_CF);
         uint32_t td = get_time_date(st.st_mtime);
@@ -869,6 +1112,7 @@ static void intr21_57(void)
     }
     else if(al == 1)
     {
+        update_dos_sft(sidx, NULL);
         // SET FILE LAST WRITTEN TIME
         cpuClrFlag(cpuFlag_CF);
         return;
@@ -918,9 +1162,9 @@ static void fputc_unicode(uint8_t ch, FILE* fd)
 }
 
 // Writes a character to standard output.
-static void dos_putchar(uint8_t ch, int fd)
+static void dos_putchar(uint8_t ch, int sidx)
 {
-    if(devinfo[fd] == 0x80D3 && video_active())
+    if(filetable[sidx].devinfo == 0x80D3 && video_active())
     {
         // Handle TAB character here:
         if(ch == 0x09)
@@ -932,17 +1176,17 @@ static void dos_putchar(uint8_t ch, int fd)
         else
             video_putch(ch);
     }
-    else if(devinfo[fd] == 0x80D3)
-        fputc_unicode(ch, handles[fd]);
-    else if(!handles[fd])
+    else if(filetable[sidx].devinfo == 0x80D3)
+        fputc_unicode(ch, filetable[sidx].f);
+    else if(!filetable[sidx].f)
         fputc_unicode(ch, stdout);
-    else if(!fd && devinfo[0] == 0x80D3 && devinfo[1] == 0x80D3)
+    else if(!sidx && filetable[0].devinfo == 0x80D3 && filetable[1].devinfo == 0x80D3)
         // DOS programs can write to STDIN and expect output to the terminal.
         // This hack will only work if STDOUT is not redirected, in real DOS
         // you can redirect STDOUT and write to STDIN.
-        fputc_unicode(ch, handles[1]);
+        fputc_unicode(ch, filetable[1].f);
     else
-        fputc(ch, handles[fd]);
+        fputc(ch, filetable[sidx].f);
 }
 
 static void intr21_9(void)
@@ -999,11 +1243,11 @@ static int run_emulator(char *file, const char *prgname, char *cmdline, char *en
             setenv(ENV_FILENAME, m, 1);
         }
 
-        // pass open file descriptors to child process
+        // pass open file descriptors to child process /*FIXME*/
         for(unsigned i = 0; i < 3; i++)
-            if(handles[i])
+            if(filetable[i].f)
             {
-                int f1 = fileno(handles[i]);
+                int f1 = fileno(filetable[i].f);
                 int f2 = (f1 < 3) ? dup(f1) : f1;
                 if(f2 < 0)
                     f2 = f1;
@@ -1050,12 +1294,12 @@ NORETURN void intr20(void)
 static uint16_t inp_last_key;
 static void char_input(int brk)
 {
-    fflush(handles[1] ? handles[1] : stdout);
+    fflush(filetable[1].f ? filetable[1].f : stdout);
 
     if(inp_last_key == 0)
     {
-        if(devinfo[0] != 0x80D3 && handles[0])
-            inp_last_key = getc(handles[0]);
+        if(filetable[0].devinfo != 0x80D3 && filetable[0].f)
+            inp_last_key = getc(filetable[0].f);
         else
             inp_last_key = getch(brk);
     }
@@ -1334,10 +1578,12 @@ int intr21(void)
         char_input(1);
         dos_putchar(cpuGetAX() & 0xFF, 1);
         check_screen();
+        update_dos_sft(0, NULL);
         break;
     case 2: // PUTCH
         dos_putchar(cpuGetDX() & 0xFF, 1);
         check_screen();
+        update_dos_sft(1, NULL);
         cpuSetAX(0x0200 | (cpuGetDX() & 0xFF)); // from intlist.
         break;
     case 0x6: // CONSOLE OUTPUT
@@ -1362,16 +1608,20 @@ int intr21(void)
             dos_putchar(cpuGetDX() & 0xFF, 1);
             cpuSetAL(cpuGetDX());
         }
+        update_dos_sft(1, NULL);
         break;
     case 0x7: // DIRECT CHARACTER INPUT WITHOUT ECHO
         char_input(0);
+        update_dos_sft(0, NULL);
         break;
     case 0x8: // CHARACTER INPUT WITHOUT ECHO
         char_input(1);
+        update_dos_sft(0, NULL);
         break;
     case 0x9: // WRITE STRING
         intr21_9();
         check_screen();
+        update_dos_sft(1, NULL);
         break;
     case 0xA: // BUFFERED INPUT
     {
@@ -1390,18 +1640,18 @@ int intr21(void)
 
         // If we are reading from console, suspend keyboard handling and update
         // emulator state.
-        if(devinfo[0] == 0x80D3)
+        if(filetable[0].devinfo == 0x80D3)
         {
             suspend_keyboard();
             emulator_update();
         }
 
-        FILE *f = handles[0] ? handles[0] : stdin;
+        FILE *f = filetable[0].f ? filetable[0].f : stdin;
         unsigned i;
         for(i = 0; i < len;)
         {
             int c;
-            if(devinfo[0] == 0x80D3)
+            if(filetable[0].devinfo == 0x80D3)
             {
                 char_input(1);
                 c = cpuGetAX() & 0xFF;
@@ -1433,10 +1683,11 @@ int intr21(void)
             i++;
         }
         put8(addr + 1, i);
+        update_dos_sft(1, NULL);
         break;
     }
     case 0xB: // STDIN STATUS
-        if(devinfo[0] == 0x80D3)
+        if(filetable[0].devinfo == 0x80D3)
             cpuSetAX(char_pending() ? 0x0BFF : 0x0B00);
         else
             cpuSetAX(0x0B00);
@@ -1465,10 +1716,14 @@ int intr21(void)
         dos_open_file_fcb(0);
         break;
     case 0x10: // CLOSE FILE USING FCB
+    {
+        int handle;
         dos_show_fcb();
         // Set full AX because dos_close_file clobbers AX
-        cpuSetAX(dos_close_file(get_fcb_handle()) ? 0x10FF : 0x1000);
+        get_fcb_handle(&handle, NULL);
+        cpuSetAX(dos_close_file(handle) ? 0x10FF : 0x1000);
         break;
+    }
     case 0x11: // FIND FIRST FILE USING FCB
         dos_find_first_fcb();
         break;
@@ -1851,7 +2106,8 @@ int intr21(void)
         break;
     case 0x3F: // READ
     {
-        FILE *f = handles[cpuGetBX()];
+        int sidx = handle_to_sidx(cpuGetBX());
+        FILE *f = (sidx < 0) ? NULL : filetable[sidx].f;
         if(!f)
         {
             cpuSetFlag(cpuFlag_CF);
@@ -1889,10 +2145,11 @@ int intr21(void)
             dos_error = 5; // access denied
             cpuSetAX(dos_error);
             cpuSetFlag(cpuFlag_CF);
+            update_dos_sft(sidx, NULL);
             break;
         }
         // If read from "CON", reads up to the first "CR":
-        if(devinfo[cpuGetBX()] == 0x80D3)
+        if(filetable[sidx].devinfo == 0x80D3)
         {
             suspend_keyboard();
             cpuSetAX(line_input(f, buf, len));
@@ -1917,14 +2174,15 @@ int intr21(void)
             /*NOP*/;
 #endif
             free(buf);
+            update_dos_sft(sidx, NULL);
         }
 #endif
         break;
     }
     case 0x40: // WRITE
     {
-        int fd = cpuGetBX();
-        FILE *f = handles[fd];
+        int sidx = handle_to_sidx(cpuGetBX());
+        FILE *f = (sidx < 0) ? NULL : filetable[sidx].f;
         if(!f)
         {
             cpuSetFlag(cpuFlag_CF);
@@ -1947,7 +2205,7 @@ int intr21(void)
                 dos_error = 5; // access denied
                 cpuSetAX(dos_error);
             }
-            else if(devinfo[fd] != 0x80D3)
+            else if(filetable[sidx].devinfo != 0x80D3)
             {
                 off_t pos = ftello(f);
                 if(pos != -1 && -1 == ftruncate(fileno(f), pos))
@@ -1956,6 +2214,7 @@ int intr21(void)
                     dos_error = 5; // access denied
                     cpuSetAX(dos_error);
                 }
+                update_dos_sft(sidx, NULL);
             }
             break;
         }
@@ -1992,10 +2251,10 @@ int intr21(void)
             cpuSetFlag(cpuFlag_CF);
             break;
         }
-        if(devinfo[fd] == 0x80D3)
+        if(filetable[sidx].devinfo == 0x80D3)
         {
             for(unsigned i = 0; i < len; i++)
-                dos_putchar(buf[i], fd);
+                dos_putchar(buf[i], sidx);
             check_screen();
             cpuSetAX(len);
         }
@@ -2010,6 +2269,7 @@ int intr21(void)
         if (buf_allocated)
             free(buf);
 #endif
+        update_dos_sft(sidx, NULL);
         break;
     }
     case 0x41: // UNLINK
@@ -2046,7 +2306,8 @@ int intr21(void)
     }
     case 0x42: // LSEEK
     {
-        FILE *f = handles[cpuGetBX()];
+        int sidx = handle_to_sidx(cpuGetBX());
+        FILE *f = (sidx < 0) ? NULL : filetable[sidx].f;
         long pos = cpuGetDX();
         if(cpuGetCX() >= 0x8000)
             pos = pos + (((long)cpuGetCX() - 0x10000) << 16);
@@ -2091,9 +2352,10 @@ int intr21(void)
     case 0x44:
     {
         int h = cpuGetBX();
+        int sidx = handle_to_sidx(h);
         int al = ax & 0xFF;
         if((al < 4 || al == 6 || al == 7 || al == 10 || al == 12 || al == 16) &&
-           !handles[h])
+           (sidx < 0 || !filetable[sidx].f))
         {
             // Show error if it is a file handle.
             debug(debug_dos, "\t(invalid file handle)\n");
@@ -2107,10 +2369,10 @@ int intr21(void)
         switch(al)
         {
         case 0x00: // GET DEV INFO
-            debug(debug_dos, "\t= %04x\n", devinfo[h]);
-            cpuSetDX(devinfo[h]);
+            debug(debug_dos, "\t= %04x\n", filetable[sidx].devinfo);
+            cpuSetDX(filetable[sidx].devinfo);
             // Undocumented, needed for VEDIT INSTALL
-            cpuSetAX(devinfo[h]);
+            cpuSetAX(filetable[sidx].devinfo);
             break;
         case 0x01: // SET DEV INFO
         case 0x02: // IOCTL CHAR DEV READ
@@ -2122,10 +2384,10 @@ int intr21(void)
             cpuSetFlag(cpuFlag_CF);
             break;
         case 0x06: // GET INPUT STATUS
-            if(devinfo[h] == 0x80D3)
+            if(filetable[sidx].devinfo == 0x80D3)
                 cpuSetAX(char_pending() ? 0x44FF : 0x4400);
             else
-                cpuSetAX(feof(handles[h]) ? 0x4400 : 0x44FF);
+                cpuSetAX(feof(filetable[sidx].f) ? 0x4400 : 0x44FF);
             break;
         case 0x07: // GET OUTPUT STATUS
             cpuSetAX(0x44FF);
@@ -2159,9 +2421,10 @@ int intr21(void)
         }
         break;
     }
-    case 0x45:
+    case 0x45: // DUP
     {
-        if(!handles[cpuGetBX()])
+        int sidx = handle_to_sidx(cpuGetBX());
+        if(sidx < 0 || !filetable[sidx].f)
         {
             // Show error if it is a file handle.
             debug(debug_dos, "\t(invalid file handle)\n");
@@ -2170,7 +2433,8 @@ int intr21(void)
             cpuSetAX(dos_error);
             break;
         }
-        int h = get_new_handle();
+        int h;
+        get_new_handle(&h, NULL);
         if(h < 0)
         {
             dos_error = 4;
@@ -2179,17 +2443,16 @@ int intr21(void)
             break;
         }
         debug(debug_dos, "\t%04x -> %04x\n", cpuGetBX(), (unsigned)h);
-        handles[h] = handles[cpuGetBX()];
-        devinfo[h] = devinfo[cpuGetBX()];
-        handle_owners[h] = get_current_PSP();
+        set_handle(h, sidx);
         cpuSetAX(h);
         dos_error = 0;
         cpuClrFlag(cpuFlag_CF);
         break;
     }
-    case 0x46:
+    case 0x46: // DUP2
     {
-        if(!handles[cpuGetBX()])
+        int sidx = handle_to_sidx(cpuGetBX());
+        if(sidx < 0 || !filetable[sidx].f)
         {
             // Show error if it is a file handle.
             debug(debug_dos, "\t(invalid file handle)\n");
@@ -2198,10 +2461,7 @@ int intr21(void)
             cpuSetFlag(cpuFlag_CF);
             break;
         }
-        if(handles[cpuGetCX()])
-            dos_close_file(cpuGetCX());
-        handles[cpuGetCX()] = handles[cpuGetBX()];
-        devinfo[cpuGetCX()] = devinfo[cpuGetBX()];
+        set_handle(cpuGetCX(), sidx);
         cpuClrFlag(cpuFlag_CF);
         break;
     }
@@ -2401,6 +2661,10 @@ int intr21(void)
                 print_error("error loading EXE/COM file.\n");
             fclose(f);
 
+            // copy jft
+            copy_jft(psp_mcb+1, cpuGetAddress(get16(cur_psp*16 + 0x36),
+                                              get16(cur_psp*16 + 0x34)));
+
             // Set parent PSP to the current one
             put16(cpuGetAddress(psp_mcb+1, 22), cur_psp);
             set_current_PSP(psp_mcb+1);
@@ -2439,19 +2703,7 @@ int intr21(void)
                 ep->parent_es = saveES;
                 exec_psp_root = ep;
 
-                // restore standard IO
-                if(!handles[0])
-                    handles[0] = stdin;
-                if(!handles[1])
-                    handles[1] = stdout;
-                if(!handles[2])
-                    handles[2] = stderr;
-                if(!handles[3])
-                    handles[3] = stderr;
-                if(!handles[4])
-                    handles[4] = stderr;
-                for(int i = 0; i < 3; i++)
-                    devinfo[i] = guess_devinfo(handles[i]);
+                restore_handles();
             }
             else                  // Load only
             {
@@ -2578,19 +2830,7 @@ int intr21(void)
             }
         } while (copied_only_psp);
 
-        // restore standard IO
-        if(!handles[0])
-            handles[0] = stdin;
-        if(!handles[1])
-            handles[1] = stdout;
-        if(!handles[2])
-            handles[2] = stderr;
-        if(!handles[3])
-            handles[3] = stderr;
-        if(!handles[4])
-            handles[4] = stderr;
-        for(int i = 0; i < 3; i++)
-            devinfo[i] = guess_devinfo(handles[i]);
+        restore_handles();
         break;
     }
     case 0x4D: // GET RETURN CODE (ERRORLEVEL)
@@ -2835,7 +3075,8 @@ int intr21(void)
         break;
     case 0x68: // fflush
     {
-        FILE *f = handles[cpuGetBX()];
+        int sidx = handle_to_sidx(cpuGetBX());
+        FILE *f = (sidx < 0) ? NULL : filetable[sidx].f;
         if(!f)
         {
             cpuSetFlag(cpuFlag_CF);
@@ -3149,6 +3390,10 @@ void init_dos(int argc, char **argv)
     // Init SYSVARS
     dos_sysvars = get_static_memory(128, 0);
     put16(dos_sysvars + 22, 0x0080); // First MCB
+    put16(dos_sysvars + 6, 0xffff); // OEM function header
+    put16(dos_sysvars + 8, 0xffff); // OEM function header
+    put16(dos_sysvars + 28, DOS_SFT_BASE & 0xf); // system file table
+    put16(dos_sysvars + 32, DOS_SFT_BASE >> 4);  // system file table
     // NUL driver
     static const uint8_t null_device[] = {
         0xff, 0xff, 0x00, 0x00,
@@ -3157,6 +3402,13 @@ void init_dos(int argc, char **argv)
         'N', 'U', 'L', ' ', ' ', ' ', ' ', ' '
     };
     putmem(dos_sysvars + 24 + 0x22, null_device, sizeof(null_device));
+
+    // clear System File Table on DOS system
+    put16(DOS_SFT_BASE + 0, 0xffff);
+    put16(DOS_SFT_BASE + 2, 0xffff);
+    put16(DOS_SFT_BASE + 4, 0xFF);
+    for(int i = 0; i < 0x3b*100; i++)
+        put8(DOS_SFT_BASE + 6 + i, 0);
 
     // Setup default drive
     if(getenv(ENV_DEF_DRIVE))
@@ -3278,6 +3530,9 @@ void init_dos(int argc, char **argv)
     if(!dos_load_exe(f, psp_mcb))
         print_error("error loading EXE/COM file.\n");
     fclose(f);
+
+    // Init JFT
+    init_jft(get_current_PSP());
 
     // Init DTA
     dosDTA = get_current_PSP() * 16 + 0x80;

@@ -601,15 +601,30 @@ Offset  Length  Description
 0Ah     4       Address of program termination code
 0Eh     4       Address of break handler routine
 12h     4       Address of critical error handler routine
-16h     22      Reserved for use by DOS
+16h     2       Parent's PSP segment
+18h     20      Default Job File Table (not used at emu2)
 2Ch     2       Segment address of environment area
-2Eh     34      Reserved by DOS
+2Eh     4       SS:SP on entry laste int 21h
+32h     2       Size of Job File Table
+34h     4       Pointer to Job File Table
+38h     24      Reserved
 50h     3       INT 21h, RETF instructions
 53h     9       Reserved by DOS
 5Ch     16      Default FCB #1
 6Ch     20      Default FCB #2
 80h     1       Length of command line string
 81h     127     Command line string  */
+
+/* Enviroment segment
+
+VAR0=xxxx\0                 variable 1
+VAR1=yyyy\0                 variable 2
+...
+VARn=zzz\0                  variable n
+\0                          environment end marker
+\1\0                        PROGNAME indicator
+PROGRAM_NAME\0              PROGRAM FULL PATH (max 64 byte)
+ */
 
 // Creates main PSP
 uint16_t create_PSP(const char *cmdline, const char *environment, uint16_t env_size,
@@ -618,16 +633,21 @@ uint16_t create_PSP(const char *cmdline, const char *environment, uint16_t env_s
     // Put environment before PSP and program name, use rounded up environment size:
     uint16_t max;
     uint16_t env_mcb = mcb_alloc_new((env_size + 64 + 2 + 15) >> 4, 1, &max);
+    // Creates JFT table
+    uint16_t jft_mcb = mcb_alloc_new(16, 1, &max);
     // Creates a mcb to hold the PSP and the loaded program
-    uint16_t psp_mcb = mcb_alloc_new(16, 1, &max);
+    uint16_t psp_mcb = mcb_alloc_new(0xFFFF, 1, &max);
+    if(!psp_mcb)
+        psp_mcb = mcb_alloc_new(max, 1, &max);
 
-    if(!env_mcb || !psp_mcb)
+    if(!env_mcb || !jft_mcb || !psp_mcb)
     {
         debug(debug_dos, "not enough memory for new PSP and environment");
         return 0;
     }
 
     uint16_t env_seg = env_mcb + 1;
+    uint16_t jft_seg = jft_mcb + 1;
     uint16_t psp_seg = psp_mcb + 1;
     current_PSP = psp_seg;
 
@@ -646,6 +666,7 @@ uint16_t create_PSP(const char *cmdline, const char *environment, uint16_t env_s
 
     // Fill MCB owners:
     mcb_set_owner(env_mcb, psp_seg);
+    mcb_set_owner(jft_mcb, psp_seg);
     mcb_set_owner(psp_mcb, psp_seg);
 
 #ifdef IA32
@@ -680,6 +701,12 @@ uint16_t create_PSP(const char *cmdline, const char *environment, uint16_t env_s
     dosPSP[23] = 0xFF;                  //     to signal no parent DOS process
     dosPSP[44] = 0xFF & env_seg;        // 2C: environment segment
     dosPSP[45] = 0xFF & (env_seg >> 8); //
+    dosPSP[50] = 0xFF;                  // 32: max file handle
+    dosPSP[51] = 0x00;                  //
+    dosPSP[52] = 0x00;                  // 34: ptr to JFT
+    dosPSP[53] = 0x00;                  //
+    dosPSP[54] = 0xFF & jft_seg;        //
+    dosPSP[55] = 0xFF & (jft_seg >> 8); //
     dosPSP[80] = 0xCD;                  // 50: INT 21h / RETF
     dosPSP[81] = 0x21;                  //
     dosPSP[82] = 0xCB;                  //
@@ -715,6 +742,9 @@ uint16_t create_PSP(const char *cmdline, const char *environment, uint16_t env_s
 #ifdef IA32
     meml_writes(psp_seg * 16, dosPSP, 256);
 #endif
+    // Clear JFT
+    for(int i = 0; i<255; i++)
+        put8(jft_seg * 16 + i, 0xFF);
     return psp_mcb;
 }
 
@@ -887,7 +917,7 @@ int dos_load_exe(FILE *f, uint16_t psp_mcb)
     uint16_t psp_sz = mcb_resize(psp_mcb, max_sz);
     if(psp_sz < min_sz && psp_sz < max_sz)
     {
-        debug(debug_dos, "\texe read, not enough memory!\n");
+        debug(debug_dos, "\texe read, not enough memory! (need:%d) (actual:%d)\n", min_sz, psp_sz);
         return 0;
     }
 

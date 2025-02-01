@@ -578,9 +578,24 @@ int dos_path_normalize(char *path, unsigned max)
     while(end < max && path[end])
     {
         beg = end;
-        while(char_valid(path[end]))
-            end++;
-
+        if(mode == DOSNAME_DBCS)
+        {
+            int in_dbcs = 0;
+            while(path[end])
+            {
+                if (in_dbcs)
+                    in_dbcs = 0;
+                else if (check_dbcs_1st(path[end]))
+                    in_dbcs = 1;
+                else if(!char_valid(path[end]))
+                    break;
+                end++;
+            }
+        }
+        else
+            while(char_valid(path[end]))
+                end++;
+            
         if(path[end] && !char_pathsep(path[end]))
             path[end] = 0;
         if(!path[end] && end < max)
@@ -590,13 +605,47 @@ int dos_path_normalize(char *path, unsigned max)
         path[end] = 0;
         if(!strcmp(&path[beg], ".."))
         {
-            // Up a directory
-            int e = strlen(base) - 1;
-            while(e >= 0 && !char_pathsep(base[e]))
-                e--;
-            while(e >= 0 && char_pathsep(base[e]))
-                e--;
-            base[e + 1] = 0;
+            if(mode == DOSNAME_DBCS)
+            {
+                // parse start of begin, for dbcs check
+                int e1 = 0;
+                int e2 = 0;
+                int in_dbcs = 0;
+                int prev_pathsep = 0;
+                while(base[e1]) {
+                    if(in_dbcs)
+                    {
+                        in_dbcs = 0;
+                        prev_pathsep = 0;
+                    }
+                    else if(check_dbcs_1st(base[e1]))
+                    {
+                        in_dbcs = 1;
+                        prev_pathsep = 0;
+                    }
+                    else if(char_pathsep(base[e1]))
+                    {
+                        if (!prev_pathsep)
+                            e2 = e1;
+                        prev_pathsep = 1;
+                    }
+                    else
+                        prev_pathsep = 0;
+                    e1++;
+                }
+                if(e2)
+                    base[e2 + 1] = 0;
+            }
+            else
+            {
+                // Up a directory
+                int e = strlen(base) - 1;
+                while(e >= 0 && !char_pathsep(base[e]))
+                    e--;
+                while(e >= 0 && char_pathsep(base[e]))
+                    e--;
+                base[e + 1] = 0;
+            }
         }
         else if(path[beg] && strcmp(&path[beg], "."))
         {
@@ -623,6 +672,48 @@ int dos_path_normalize(char *path, unsigned max)
     // Copy result
     memcpy(path, base, max + 1);
     return drive;
+}
+
+void make_fcbname(char *dos_shortname, const char *path)
+{
+    int p = 0;
+    int s = 0;
+    int in_dbcs = 0;
+    if(path[0] && path[1] == ':')
+        p = 2;
+    while(path[p])
+    {
+        if(in_dbcs)
+            in_dbcs = 0;
+        else if(mode == DOSNAME_DBCS && check_dbcs_1st(path[p]))
+            in_dbcs = 1;
+        else if(char_pathsep(path[p]))
+            s = p + 1;
+        p++;
+    }
+    
+    if(s == 0)
+    {
+        memset(dos_shortname, ' ', 11);
+        return;
+    }
+
+    in_dbcs = 0;
+    int pos;
+    for(pos = 0; path[s] && pos < 8; pos++)
+    {
+        if (path[s] == '.')
+            while (pos < 8)
+                dos_shortname[pos++] = ' ';
+        else
+            dos_shortname[pos] = dos_valid_char(path[s], &in_dbcs);;
+        s++;
+    }
+    in_dbcs = 0;
+    for(; path[s] && pos < 11; pos++)
+        dos_shortname[pos] = dos_valid_char(path[s++], &in_dbcs);
+    for(; pos < 11; pos++)
+        dos_shortname[pos] = ' ';
 }
 
 // Get UNIX base path:

@@ -14,6 +14,9 @@ enum DOSNAME_MODE {
 };
 void dosname_mode(enum DOSNAME_MODE m);
 
+// make 8+3 with space filename from dos path
+void make_fcbname(char *dos_shortname, const char *path);
+
 // Converts a DOS full path to equivalent Unix filename
 // If the file exists, returns the name of the file.
 // If the file does not exists, and "force" is true, returns the possible lowercase name.
