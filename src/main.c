@@ -138,17 +138,53 @@ static void intr12(void)
 static void intr15(void)
 {
     int ax = cpuGetAX();
-    if(ax == 0x4900)
+    if(ax == 0x2400) // disable A20 gate
+    {
+        set_a20_enable(0);
+        cpuSetAX(ax & 0xFF);
+        cpuClrFlag(cpuFlag_CF);
+        debug(debug_int, "S-15%04X A20 gate disabled\n", ax);
+    }
+    else if(ax == 0x2401) // enable A20 gate
+    {
+        set_a20_enable(1);
+        cpuSetAX(ax & 0xFF);
+        cpuClrFlag(cpuFlag_CF);
+        debug(debug_int, "S-15%04X A20 gate enabled\n", ax);
+    }
+    else if(ax == 0x2402) // get A20 gate status
+    {
+        cpuSetAX(query_a20_enable());
+        cpuSetCX(0);
+        cpuClrFlag(cpuFlag_CF);
+        debug(debug_int, "S-15%04X A20 gate status %d\n", ax, cpuGetAX());
+    }
+    else if(ax == 0x2403) // query A20 gate support
+    {
+        cpuSetAX(ax & 0xFF);
+        cpuSetBX(0x0003);
+        cpuClrFlag(cpuFlag_CF);
+        debug(debug_int, "S-15%04X query A20 gate support\n", ax);
+    }
+    else if(ax == 0x4900) // get BIOS type (DOS/V or PS55)
     {
         cpuClrFlag(cpuFlag_CF);
         cpuSetAX(0x0000);
         cpuSetBX(cpuGetBX() & 0xFF00);
-        debug(debug_int, "S-15%04X\n", ax);
+        debug(debug_int, "S-15%04X get BIOS type\n", ax);
     }
-    else if((ax & 0xFF00) == 0x8800)
+    else if((ax & 0xFF00) == 0x8800) // get extended memory size (return 0)
     {
         cpuClrFlag(cpuFlag_CF);
         cpuSetAX(0x0000);
+        debug(debug_int, "S-15%04X get extended memory size\n", ax);
+    }
+    else if((ax & 0xFF00) == 0xC000)
+    {
+        cpuClrFlag(cpuFlag_CF);
+        cpuSetES(0xFFFE);
+        cpuSetBX(0);
+        cpuSetAX(ax & 0xFF);
         debug(debug_int, "S-15%04X\n", ax);
     }
     else
@@ -298,6 +334,17 @@ static void init_bios_mem(void)
     // INT10 functions before reading.
     put8(0x413, 0x80); // ram size: 640k
     put8(0x414, 0x02); //
+    // System configuration
+    put16(0xFFFE0, 0x08);
+    put8(0xFFFE2, 0xFC); // model DOSEMU
+    put8(0xFFFE3, 0x00); // model DOSEMU
+    put8(0xFFFE4, 0x00); // BIOS revision
+    put8(0xFFFE5, 0x20); // feature byte 1 (Real-time clock is installed)
+    put8(0xFFFE6, 0x00); // feature byte 2
+    put8(0xFFFE7, 0x00); // feature byte 3
+    put8(0xFFFE8, 0x00); // feature byte 4
+    put8(0xFFFE9, 0x00); // feature byte 5
+    
     // Store an "INT-19h" instruction in address FFFF:0000
     put8(0xFFFF0, 0xCB);
     put8(0xFFFF1, 0x19);
