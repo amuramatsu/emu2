@@ -344,6 +344,7 @@ static void init_bios_mem(void)
     put8(0xFFFE7, 0x00); // feature byte 3
     put8(0xFFFE8, 0x00); // feature byte 4
     put8(0xFFFE9, 0x00); // feature byte 5
+    put8(0xFFFEF, 0xCF); // IRET
     
     // Store an "INT-19h" instruction in address FFFF:0000
     put8(0xFFFF0, 0xCB);

@@ -87,6 +87,7 @@ emu2_int_debugout(const char *format, ...)
     debug(debug_int, "%s\n", buf);
 }
 
+extern void IRET(void);
 void
 emu2_hook(void)
 {
@@ -103,14 +104,12 @@ emu2_hook(void)
     debug_regs();
     if(iret)
     {
-        //IRET
-        uint32_t stack = CPU_SS * 16 + CPU_SP;
+        //JMP to IRET address
+		CPU_IP = 0x000F;
+		LOAD_SEGREG(CPU_CS_INDEX, 0xFFFE);
         debug(debug_cpu, "%04x:%08x: %s%s\n",
               CPU_CS, CPU_EIP, "??                      ", "(iret)");
-        CPU_IP = meml_read16(stack);
-        LOAD_SEGREG(CPU_CS_INDEX,  meml_read16(stack+2));
-        CPU_FLAG = meml_read16(stack+4);
-        CPU_SP += 6;
+		//IRET();
         debug_regs();
     }
 }
