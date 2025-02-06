@@ -1403,6 +1403,37 @@ static int line_input(FILE *f, uint8_t *buf, int max)
     }
 }
 
+#ifdef DEBUG_MCB
+static void mcb_debug(void)
+{
+    uint32_t mcb_addr = 0x800;
+    int flg;
+    unsigned int owner, size;
+    do
+    {
+        flg = get8(mcb_addr);
+        owner = get16(mcb_addr + 1);
+        size = get16(mcb_addr + 3);
+        debug(debug_dos, "MEM: '%c': OWNER %04x : ADDR %06x - %06x: SIZE %d\n",
+              flg, owner, mcb_addr, mcb_addr + size*16 + 16, size*16);
+        mcb_addr += size * 16 + 16;
+    }
+    while (flg != 'Z' && mcb_addr < 0x110000);
+
+    mcb_addr = 0x800;
+    do
+    {
+        flg = memory[mcb_addr];
+        owner = memory[mcb_addr + 1] | (memory[mcb_addr + 2] << 8);
+        size = memory[mcb_addr + 3] | (memory[mcb_addr + 4] << 8);
+        debug(debug_dos, "mem: '%c': OWNER %04x : ADDR %06x - %06x: SIZE %d\n",
+              flg, owner, mcb_addr, mcb_addr + size*16 + 16, size*16);
+        mcb_addr += size * 16 + 16;
+    }
+    while (flg != 'Z' && mcb_addr < 0x110000);
+}
+#endif /* DEBUG_MCB */
+
 static void intr21_debug(void)
 {
     static const char *func_names[] =
@@ -1457,6 +1488,9 @@ static void intr21_debug(void)
 
     debug(debug_dos, "D-21%04X: %-15s BX=%04X CX:%04X DX:%04X DI=%04X DS:%04X ES:%04X\n",
           cur.ax, fn, cur.bx, cur.cx, cur.dx, cur.di, cur.ds, cur.es);
+#ifdef DEBUG_MCB
+    mcb_debug();
+#endif
 }
 
 // DOS int 2f
@@ -3393,7 +3427,7 @@ void init_dos(int argc, char **argv)
 #endif
 
     // Init memory handling - available start address at 0x800,
-    // ending address at 0xA0000.
+    // ending address at 0xB8000.
     // We limit here memory to less than 512K to fix some old programs
     // that check memori using "JLE" instead of "JBE".
     if(getenv(ENV_LOWMEM))
