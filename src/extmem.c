@@ -136,7 +136,6 @@ merge_free_region(int *free_total, int *free_max)
         *free_total = total;
     if (free_max)
         *free_max = max;
-    debug(debug_int, "\t  freemerge: max: %d, total: %d\n", max, total);
 }
 
 static void
@@ -160,6 +159,7 @@ set_a20_enable(int enable)
         memory_mask = memory_limit;
     else
         memory_mask = 0xfffff;
+    debug(debug_int, "--A20 mask %08x--\n", memory_mask);
 }
 
 int
@@ -601,6 +601,12 @@ init_xms(int maxmem)
     memset(EMB_DATA_ROOT, 0, sizeof(struct emb_data));
     EMB_DATA_ROOT->kb_size = maxmem*1024 - XMS_EMB_BASE/1024;
     memory_limit = maxmem*1024*1024 - 1;
+
+#ifdef IA32
+    // some apps for i386 assume that A20 line is on at beginin (e.g. free386)
+    xms_a20_global_enable = 1;
+    set_a20_enable(1);
+#endif
     
     return 1;
 }
