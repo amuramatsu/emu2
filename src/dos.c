@@ -157,28 +157,30 @@ static int get_new_sft(void)
     return -1;
 }
 
-static uint32_t get_jft_addr(unsigned cur_psp)
+static uint32_t get_jft_addr(unsigned cur_psp, int *num)
 {
     unsigned psp_addr = get_current_PSP() * 16;
+    *num = get8(psp_addr + 0x32) & 0xff;
     return cpuGetAddress(get16(psp_addr + 0x36),
                          get16(psp_addr + 0x34));
 }
 
 static void get_new_handle(int *handle, int *sft_idx)
 {
-    uint32_t jft_addr = get_jft_addr(get_current_PSP());
+    int handle_num;
+    uint32_t jft_addr = get_jft_addr(get_current_PSP(), &handle_num);
     int i;
-    for(i = 0; i < max_handles; i++)
+    for(i = 0; i < handle_num; i++)
         if (get8(jft_addr + i) == 0xFF)
             break;
     if(!sft_idx)
     {
-        *handle = (i == max_handles) ? -1 : i;
+        *handle = (i == handle_num) ? -1 : i;
         debug(debug_dos, "create new handle %d\n", i);
         return;
     }
     int sidx = get_new_sft();
-    if(i == max_handles || sidx < 0)
+    if(i == handle_num || sidx < 0)
     {
         *handle = *sft_idx = -1;
         debug(debug_dos, "no new handle or sft\n");
@@ -193,8 +195,9 @@ static void get_new_handle(int *handle, int *sft_idx)
 
 static void dispose_handle(int handle, int sft_idx)
 {
-    uint32_t jft_addr = get_jft_addr(get_current_PSP());
-    if(handle >= 0 && handle < max_handles)
+    int handle_num;
+    uint32_t jft_addr = get_jft_addr(get_current_PSP(), &handle_num);
+    if(handle >= 0 && handle < handle_num)
         put8(jft_addr + handle, 0xFF);
     if(sft_idx >= 0)
     {
@@ -205,8 +208,9 @@ static void dispose_handle(int handle, int sft_idx)
 
 static int handle_to_sidx(int h)
 {
-    uint32_t jft_addr = get_jft_addr(get_current_PSP());
-    if(h > max_handles)
+    int handle_num;
+    uint32_t jft_addr = get_jft_addr(get_current_PSP(), &handle_num);
+    if(h > handle_num)
         return -1;
     int idx = get8(jft_addr + h);
     if(idx == 0xff)
@@ -216,7 +220,8 @@ static int handle_to_sidx(int h)
 
 static int dos_close_file(int h)
 {
-    uint32_t jft_addr = get_jft_addr(get_current_PSP());
+    int handle_num;
+    uint32_t jft_addr = get_jft_addr(get_current_PSP(), &handle_num);
     int sidx = handle_to_sidx(h);
     FILE *f = (sidx < 0) ? NULL : filetable[sidx].f;
     if(!f)
@@ -249,8 +254,9 @@ static int dos_close_file(int h)
 
 static void dos_close_allfile_owned(unsigned psp_seg)
 {
-    uint32_t jft_addr = get_jft_addr(get_current_PSP());
-    for(int i = 0; i < max_handles; i++)
+    int handle_num;
+    uint32_t jft_addr = get_jft_addr(get_current_PSP(), &handle_num);
+    for(int i = 0; i < handle_num; i++)
     {
         int n = get8(jft_addr + i);
         if(n != 0xff)
@@ -261,7 +267,8 @@ static void dos_close_allfile_owned(unsigned psp_seg)
 static void set_handle(int h, int sidx)
 {
     assert(sidx >= 0 && sidx <= max_handles && filetable[sidx].f);
-    uint32_t jft_addr = get_jft_addr(get_current_PSP());
+    int handle_num;
+    uint32_t jft_addr = get_jft_addr(get_current_PSP(), &handle_num);
     int prev_sidx = get8(jft_addr + h) * 0xFF;
     if(prev_sidx != 0xff)
         dos_close_file(h);
@@ -271,19 +278,22 @@ static void set_handle(int h, int sidx)
 
 static void init_jft(unsigned psp)
 {
+    int handle_num = get8(psp*16 + 0x32) & 0xff;
     uint32_t tgt = cpuGetAddress(get16(psp*16 + 0x36), get16(psp*16 + 0x34));
     for(int i = 0; i < 5; i++)
         put8(tgt + i, i);
-    for(int i = 5; i < max_handles; i++)
+    for(int i = 5; i < handle_num; i++)
         put8(tgt + i, 0xFF);
     for(int i = 0; i < 5; i++)
         filetable[i].count++;
 }
 
-static void copy_jft(unsigned psp, uint32_t orig)
+static void copy_jft(unsigned psp, uint32_t orig, int len)
 {
+    int handle_num = get8(psp*16 + 0x32) & 0xff;
     uint32_t tgt = cpuGetAddress(get16(psp*16 + 0x36), get16(psp*16 + 0x34));
-    for(int i =0; i < max_handles; i++)
+    handle_num = (len < handle_num) ? len : handle_num;
+    for(int i =0; i < handle_num; i++)
     {
         int sidx = get8(orig + i) & 0xff;
         if(sidx != 0xff && !filetable[sidx].f)
@@ -1445,7 +1455,7 @@ static void intr21_debug(void)
         "read fcb", "write fcb", "creat fcb", "rename fcb", "n/a", // 14-18
         "get drive", "set DTA", "stat def drive", "stat drive", "n/a", // 19-1D
         "n/a", "get def DPB", "n/a", "read fcb", "write fcb", // 1E-22
-        "size fcb", "set record fcb", "set int vect", "create PSP", "read blk fcb", // 23-27
+        "size fcb", "set record fcb", "set int vect", "create PSP (old)", "read blk fcb", // 23-27
         "write blk fcb", "parse filename", "get date", "set date", "get time", // 28-2C
         "set time", "set verify", "get DTA", "version", "go TSR", // 2D-31
         "get DPB", "g/set brk check", "InDOS addr", "get int vect", "get free", // 32-36
@@ -1459,7 +1469,7 @@ static void intr21_debug(void)
         "create tmpfile", "creat new file", "flock", "(server fn)", "(net fn)", // 5A-5E
         "(net redir)", "truename", "n/a", "get PSP", "intl char info", // 5F-63
         "(internal)", "get ext country info", "(g/set global codepage table)", // 64-66
-        "(set handle count)", "fflush" //67-68
+        "set handle count", "fflush" //67-68
     };
     const char *fn;
     static int count = 0;
@@ -1901,33 +1911,6 @@ int intr21(void)
         if(9 == (ax & 0xFF))
             kbhit();
         break;
-    case 0x26: // Create PSP (duplicate current PSP)
-    {
-#ifdef IA32
-        uint8_t buf[0x80];
-        uint32_t new_psp = cpuGetAddress(cpuGetDX(), 0);
-        uint32_t orig_psp = cpuGetAddress(get_current_PSP(), 0);
-        if(check_limit(0x100, new_psp) || check_limit(0x100, orig_psp))
-        {
-            debug(debug_dos, "\tinvalid new PSP segment %04x.\n", cpuGetDX());
-            break;
-        }
-        // Copy PSP to the new segment, 0x80 is what DOS does - this excludes command line
-        meml_reads(orig_psp, buf, 0x80);
-        meml_writes(new_psp, buf, 0x80);
-#else
-        uint8_t *new_psp = getptr(cpuGetAddress(cpuGetDX(), 0), 0x100);
-        uint8_t *orig_psp = getptr(cpuGetAddress(get_current_PSP(), 0), 0x100);
-        if(!new_psp || !orig_psp)
-        {
-            debug(debug_dos, "\tinvalid new PSP segment %04x.\n", cpuGetDX());
-            break;
-        }
-        // Copy PSP to the new segment, 0x80 is what DOS does - this excludes command line
-        memcpy(new_psp, orig_psp, 0x80);
-#endif
-        break;
-    }
     case 0x27: // BLOCK READ FROM FCB
     case 0x28: // BLOCK WRITE TO FCB
     {
@@ -2710,8 +2693,10 @@ int intr21(void)
             fclose(f);
 
             // copy jft
-            copy_jft(psp_mcb+1, cpuGetAddress(get16(cur_psp*16 + 0x36),
-                                              get16(cur_psp*16 + 0x34)));
+            copy_jft(psp_mcb+1,
+                     cpuGetAddress(get16(cur_psp*16 + 0x36),
+                                   get16(cur_psp*16 + 0x34)),
+                     get8(cur_psp*16 + 0x32) & 0xff);
 
             // Set parent PSP to the current one
             put16(cpuGetAddress(psp_mcb+1, 22), cur_psp);
@@ -2902,9 +2887,9 @@ int intr21(void)
         cpuSetES(dos_sysvars >> 4);
         cpuSetBX((dos_sysvars & 0xF) + 24);
         break;
+    case 0x26: // Create PSP (duplicate current PSP)
     case 0x55: // Create CHILD PSP
     {
-#ifdef IA32
         uint8_t buf[0x80];
         uint32_t new_psp = cpuGetAddress(cpuGetDX(), 0);
         uint32_t orig_psp = cpuGetAddress(get_current_PSP(), 0);
@@ -2914,24 +2899,23 @@ int intr21(void)
             break;
         }
         // Copy PSP to the new segment, 0x80 is what DOS does - this excludes command line
+#ifdef IA32
         meml_reads(orig_psp, buf, 0x80);
         meml_writes(new_psp, buf, 0x80);
-        put8(new_psp + 22, get_current_PSP() & 0xFF);
-        put8(new_psp + 23, get_current_PSP() >> 8);
 #else
-        uint8_t *new_psp = getptr(cpuGetAddress(cpuGetDX(), 0), 0x100);
-        uint8_t *orig_psp = getptr(cpuGetAddress(get_current_PSP(), 0), 0x100);
-        if(!new_psp || !orig_psp)
-        {
-            debug(debug_dos, "\tinvalid new PSP segment %04x.\n", cpuGetDX());
-            break;
-        }
-        // Copy PSP to the new segment, 0x80 is what DOS does - this excludes command line
-        memcpy(new_psp, orig_psp, 0x80);
-        // Set parent PSP to the current one
-        new_psp[22] = get_current_PSP() & 0xFF;
-        new_psp[23] = get_current_PSP() >> 8;
+        memcpy(buf, memory + orig_psp, 0x80);
+        memcpy(memory + new_psp, buf, 0x80);
 #endif
+        put16(new_psp + 22, get_current_PSP());
+        if(ah == 0x55)
+        {
+            put16(new_psp + 0x32, 20);      // default size of JFT is 20
+            put16(new_psp + 0x34, 0x18);    // default JFT offset
+            put16(new_psp + 0x36, new_psp); // default JFT is on PSP
+            copy_jft(new_psp, cpuGetAddress(get16(orig_psp + 0x36),
+                                            get16(orig_psp + 0x34)),
+                     get8(orig_psp + 0x32) & 0xff);
+        }
         set_current_PSP(cpuGetDX());
         break;
     }
@@ -3119,8 +3103,47 @@ int intr21(void)
         cpuClrFlag(cpuFlag_CF);
         break;
     case 0x67: // SET HANDLE COUNT
+    {
+        int newcount = cpuGetBX();
+        int oldcount;
+        unsigned int cur_psp = get_current_PSP();
+        uint32_t jft_addr = get_jft_addr(cur_psp, &oldcount);
+        if(newcount > 20 && oldcount <= 20)
+        {
+            uint16_t max;
+            uint16_t seg = mem_alloc_segment(16, &max);
+            if(!seg)
+            {
+                dos_error = 8;
+                cpuSetAX(dos_error);
+                cpuSetFlag(cpuFlag_CF);
+                break;
+            }
+            int i;
+            for (i = 0; i < oldcount; i++)
+                put8(seg*16 + i, get8(jft_addr + i));
+            for (; i < 256; i++)
+                put8(seg*16 + i, 0xFF);
+            put16(cur_psp*16 + 0x32, 0xFF);
+            put16(cur_psp*16 + 0x34, 0);
+            put16(cur_psp*16 + 0x36, seg);
+        }
+        else if(newcount <= 20 && oldcount > 20)
+        {
+            int i;
+            for (i = 0; i < newcount; i++)
+                put8(cur_psp*16 + 0x18 + i, get8(jft_addr + i));
+            for (;i < 20; i++)
+                put8(cur_psp*16 + 0x18 + i, 0xff);
+            put16(cur_psp*16 + 0x32, 20);
+            put16(cur_psp*16 + 0x34, 0x18);
+            put16(cur_psp*16 + 0x36, cur_psp);
+            mem_free_segment((jft_addr >> 4) & 0xFFFF);
+        }
+        dos_error = 0;
         cpuClrFlag(cpuFlag_CF);
         break;
+    }
     case 0x68: // fflush
     {
         int sidx = handle_to_sidx(cpuGetBX());
