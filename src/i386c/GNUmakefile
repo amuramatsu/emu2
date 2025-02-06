@@ -15,7 +15,7 @@ all: $(LIBNAME)
 $(LIBNAME): $(OBJS:%=obj/%)
 	echo $(OBJS)
 	-rm $(LIBNAME)
-	$(AR) -q $@ $^ 
+	$(AR) rcs $@ $^ 
 
 obj/%.o: %.c | obj
 	$(CC) $(CFLAGS) $(CFLAGS_IA32) -c -o $@ $<
