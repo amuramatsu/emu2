@@ -191,6 +191,18 @@ static void get_new_handle(int *handle, int *sft_idx)
     debug(debug_dos, "create new handle %d assigned with sft %d\n", i, sidx);
 }
 
+static void dispose_handle(int handle, int sft_idx)
+{
+    uint32_t jft_addr = get_jft_addr(get_current_PSP());
+    if(handle >= 0 && handle < max_handles)
+        put8(jft_addr + handle, 0xFF);
+    if(sft_idx >= 0)
+    {
+        filetable[sft_idx].count = 0;
+        filetable[sft_idx].f = NULL;
+    }
+}
+
 static int handle_to_sidx(int h)
 {
     uint32_t jft_addr = get_jft_addr(get_current_PSP());
@@ -350,6 +362,7 @@ static int dos_open_file(int create, int access_mode, int name_addr)
     char *fname = dos_unix_path(name_addr, create, append_path());
     if(!get8(name_addr) || !fname)
     {
+        dispose_handle(h, sidx);
         debug(debug_dos, "\t(file not found)\n");
         dos_error = 2;
         cpuSetAX(2);
@@ -420,20 +433,20 @@ static int dos_open_file(int create, int access_mode, int name_addr)
     debug(debug_dos, "\t\tsft %d bound to %s\n", sidx, fname);
     // Set device info:
     if(!strcmp(fname, "/dev/null"))
-        filetable[h].devinfo = 0x80C4;
+        filetable[sidx].devinfo = 0x80C4;
     else if(!strcmp(fname, "/dev/tty"))
-        filetable[h].devinfo = 0x80D3;
+        filetable[sidx].devinfo = 0x80D3;
     else if(get8(name_addr + 1) == ':')
     {
         uint8_t c = get8(name_addr);
         c = (c >= 'a') ? c - 'a' : c - 'A';
         if(c > 26)
             c = dos_get_default_drive();
-        filetable[h].devinfo = 0x0000 + c;
+        filetable[sidx].devinfo = 0x0000 + c;
     }
     else
-        filetable[h].devinfo = 0x0000 + dos_get_default_drive();
-    make_fcbname((char *)filetable[h].dosname, getstr(name_addr, 128));
+        filetable[sidx].devinfo = 0x0000 + dos_get_default_drive();
+    make_fcbname((char *)filetable[sidx].dosname, getstr(name_addr, 128));
 
     update_dos_sft(sidx, &st);
     debug(debug_dos, "\t->OK.\n");
@@ -494,6 +507,7 @@ static void dos_open_file_fcb(int create)
     char *fname = dos_unix_path_fcb(fcb_addr, create, append_path());
     if(!fname)
     {
+        dispose_handle(h, sidx);
         dos_error = 2;
         debug(debug_dos, "\t(file not found)\n");
         cpuSetAL(0xFF);
