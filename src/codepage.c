@@ -476,6 +476,10 @@ int get_dos_char(int uc, int *c1, int *c2)
     int s;
 
     // TODO: faster searching
+    if (uc <= 0x0020) {
+        *c1 = uc & 0xff;
+        return 1;
+    }
     for (int i = 0; i < 256; i++) {
         if(uc == cp_table[i]) {
             *c1 = i;
