@@ -477,9 +477,18 @@ static char *dos_unix_name(const char *path, const char *dosN, int force)
 static const char *get_last_separator(const char *path)
 {
     const char *ret = 0;
+    int in_dbcs = 0;
     while(*path)
     {
-        if(*path == '\\' || *path == '/')
+        if(in_dbcs)
+        {
+            path++;
+            in_dbcs = 0;
+            continue;
+        }
+        if(mode == DOSNAME_DBCS && check_dbcs_1st(*path))
+            in_dbcs = 1;
+        else if(*path == '\\' || *path == '/')
             ret = path;
         path++;
     }
@@ -633,8 +642,7 @@ int dos_path_normalize(char *path, unsigned max)
                         prev_pathsep = 0;
                     e1++;
                 }
-                if(e2)
-                    base[e2 + 1] = 0;
+                base[e2] = 0;
             }
             else
             {

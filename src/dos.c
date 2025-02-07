@@ -725,10 +725,10 @@ static void update_dos_sft(int sidx, const struct stat *st)
     uint8_t buf[0x4c];
     int attr, drive, name, size, timedate, start, len;
 
-    debug(debug_dos, "\t\tupdate dos system file table %d\n", sidx);
     assert(sidx >= 0 && sidx <= max_handles);
     if ((filetable[sidx].devinfo & 0xffe0) != 0) // check regular file or not
         return;
+    debug(debug_dos, "\t\tupdate dos system file table %d\n", sidx);
 
     switch(dos_major)
     {
