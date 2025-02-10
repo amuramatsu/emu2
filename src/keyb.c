@@ -535,7 +535,7 @@ uint8_t keyb_read_port(unsigned port)
         if(keyb_command == 0xD0) // Read input port
         {
             keyb_command = 0x00;
-            return query_a20_enable() ? 0x02 : 0x00;
+            return query_a20_enable() ? 0x03 : 0x01;
         }
         return queued_key >> 8;
     }
@@ -564,7 +564,7 @@ void keyb_write_port(unsigned port, uint8_t value)
             // Handle keyboard commands
             if(keyb_command == 0xD1) // Write output port
             {
-                if(value & 1)
+                if(!(value & 1))
                 {
                     // System reset
                     debug(debug_int, "System reset via invalid keyboard I/O!\n");
