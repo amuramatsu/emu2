@@ -2820,7 +2820,7 @@ int intr21(void)
                     int resize = cpuGetDX() & 0xffff;
                     if(resize < 0x06)
                         resize = 0x06;
-                    mem_resize_segment(get_current_PSP()-1, resize);
+                    mem_resize_segment(get_current_PSP(), resize);
                     return_code |= 0x300;
                 }
                 else
