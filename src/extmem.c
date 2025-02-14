@@ -628,7 +628,7 @@ port_misc_read(unsigned port)
     else if (port == 0x92) {
         int a20_stat = query_a20_enable();
         debug(debug_port, "system port read - check A20=%d\n", a20_stat);
-        return a20_stat ? 0x02 : 0x00;
+        return a20_stat ? 0xC2 : 0xC0;
     }
     return 0xff;
 }

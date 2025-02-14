@@ -523,6 +523,7 @@ void update_keyb(void)
 // Keyboard controller status
 static uint8_t portB_ctl = 0;
 static uint8_t keyb_command = 0;
+static int keyb_disable = 0;
 
 // Handle keyboard controller port reading
 uint8_t keyb_read_port(unsigned port)
@@ -541,9 +542,21 @@ uint8_t keyb_read_port(unsigned port)
     }
     else if(port == 0x61)
         return portB_ctl; // Controller B, used for speaker output
-    else if(port == 0x64)
+    else if(port == 0x64) {
         // bit0 == 1 if there is data available.
-        return (queued_key != -1) | ((keyb_command != 0) << 3);
+        uint8_t result;
+        if(keyb_command == 0xD0)
+        {
+            result = 0x01;
+        }
+        else
+        {
+            result = (queued_key != -1) | ((keyb_command != 0) << 3);
+        }
+        result |= keyb_disable ? 0 : 0x10;
+        debug(debug_int, "  READ %02x\n", result);
+        return result;
+    }
     else
         return 0xFF;
 }
@@ -586,13 +599,21 @@ void keyb_write_port(unsigned port, uint8_t value)
         if((keyb_command & 0xF0) == 0xF0)
         {
             int bits = keyb_command & 0x0F;
-            if(bits & 1)
+            if(!(bits & 1))
             {
                 // System reset
                 debug(debug_int, "System reset via keyboard controller!\n");
                 cpu_reset();
             }
             keyb_command = 0;
+        }
+        else if(keyb_command == 0xAD) {
+            keyb_command = 0;
+            keyb_disable = 1;
+        }
+        else if(keyb_command == 0xAE) {
+            keyb_command = 0;
+            keyb_disable = 1;
         }
     }
 }

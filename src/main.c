@@ -173,6 +173,48 @@ static void intr15(void)
         cpuSetBX(cpuGetBX() & 0xFF00);
         debug(debug_int, "S-15%04X get BIOS type\n", ax);
     }
+    else if((ax & 0xFF00) == 0x8700) // extended memory copy
+    {
+        int num = cpuGetCX() & 0xffff;
+        uint32_t descaddr = cpuGetAddrES(cpuGetSI());
+        uint8_t desc[32];
+#ifdef IA32
+        meml_reads(descaddr, desc, sizeof(desc));
+#else
+        memcpy(desc, memory+descaddr, sizeof(desc));
+#endif
+        // Segment Descriptor
+        // 0x00 | Limit[15:0]          | Base[15:0]                         |
+        // 0x04 | Base[23:0] | Attr    | Flags | Limit[19:16] | Base[31:24] |
+        uint32_t src  = (desc[0x17]<<24) | (desc[0x14]<<16) |
+                        (desc[0x13]<<8)  | desc[0x12];
+        uint32_t slim = ((desc[0x16]&0xF) << 16) | (desc[0x11]<<8) | desc[0x10];
+        uint32_t dst  = (desc[0x1f]<<24) | (desc[0x1c]<<16) |
+                        (desc[0x1b]<<8)  | desc[0x1a];
+        uint32_t dlim = ((desc[0x1e]&0xF) << 16) | (desc[0x19]<<8) | desc[0x18];
+        if(desc[0x15] != 0x92 || desc[0x1d] != 0x92 ||
+           (desc[0x16] & 0xF0) || (desc[0x1e] & 0xF0)) {
+            cpuSetFlag(cpuFlag_CF);
+            cpuSetAX((ax & 0xFF) | 0x02);
+            debug(debug_int, "S-15%04X get extended memory copy ATTR ERROR\n", ax);
+        }
+        else if(num*2 > slim+1 || num*2 > dlim+1) {
+            cpuSetFlag(cpuFlag_CF);
+            cpuSetAX((ax & 0xFF) | 0x02);
+            debug(debug_int, "S-15%04X get extended memory copy LIMIT ERROR\n", ax);
+        }
+        else {
+#ifdef IA32
+            for (int i=0; i<num; i++)
+                put16(dst+i*2, get16(src+i*2));
+#else
+            memcpy(memory+dst, memory+src, num*2);
+#endif
+            cpuClrFlag(cpuFlag_CF);
+            cpuSetAX(ax & 0xFF);
+            debug(debug_int, "S-15%04X get extended memory copy %08X -> %08X: word %d\n", ax, src, dst, num);
+        }
+    }
     else if((ax & 0xFF00) == 0x8800) // get extended memory size (return 0)
     {
         cpuClrFlag(cpuFlag_CF);
