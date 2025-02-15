@@ -163,6 +163,7 @@ extern void emu2_hook(void);
 void
 ia32_step(void)
 {
+	static int PREV_T_FLAG = 0;
 	switch (sigsetjmp(exec_1step_jmpbuf, 1)) {
 	case 0:
 		break;
@@ -183,10 +184,11 @@ ia32_step(void)
 	do {
 		emu2_hook();
 		exec_1step();
-		if (CPU_TRAP) {
+		if (PREV_T_FLAG && CPU_TRAP) {
 			CPU_DR6 |= CPU_DR6_BS;
 			INTERRUPT(1, INTR_TYPE_EXCEPTION);
 		}
+		PREV_T_FLAG = (CPU_FLAG & T_FLAG) != 0;
 		//if (dmac.working) {
 		//	dmax86();
 		//}
