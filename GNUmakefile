@@ -62,7 +62,8 @@ $(OBJDIR)/dos.o: src/dos.c src/dos.h src/os.h src/codepage.h src/dbg.h \
 $(OBJDIR)/dosnames.o: src/dosnames.c src/dosnames.h src/dbg.h src/os.h src/emu.h \
   src/env.h src/codepage.h
 $(OBJDIR)/ems.o: src/ems.c src/ems.h src/emu.h src/dbg.h src/os.h
-$(OBJDIR)/extmem.o: src/extmem.c src/extmem.h src/emu.h src/dbg.h src/os.h
+$(OBJDIR)/extmem.o: src/extmem.c src/extmem.h src/emu.h src/dbg.h src/os.h \
+  src/env.h
 $(OBJDIR)/keyb.o: src/keyb.c src/keyb.h src/codepage.h src/dbg.h src/os.h src/emu.h \
   src/extmem.h
 $(OBJDIR)/loader.o: src/loader.c src/loader.h src/dbg.h src/os.h src/emu.h

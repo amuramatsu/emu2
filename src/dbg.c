@@ -43,6 +43,12 @@ NORETURN void print_usage(void)
            "\t\t      point to the unix working directory.\n"
            "  %-18s  Set DOS code-page. Set to '?' to show list of code-pages.\n"
            "  %-18s  Limit DOS memory to 512KB, fixes some old buggy programs.\n"
+           "  %-18s  Memory initialization flags.\n"
+           "                      - bit0: limit DOS memory to 512KB. (same as %s)\n"
+           "                      - bit1: limit DOS memory to 640KB.\n"
+           "                      - bit2: load after first 64kB.\n"
+           "                        (for resolve 'Packed file corrupt' error)\n"
+           "                      - bit3: A20 gate enabled by default.\n"
            "  %-18s  Specifies a DOS append paths, separated by ';'.\n"
            "  %-18s  Set version of DOS to emulate, e.g. '2.11', '3.20', etc.\n"
            "  %-18s  Setup text mode with given number of rows, from 12 to 50.\n"
@@ -57,7 +63,7 @@ NORETURN void print_usage(void)
            "  %-18s  Filename mode (7bit, 8bit or DBCS).\n"
            "  %-18s  Exec child process in same emulator process.\n",
            prog_name, ENV_DBG_NAME, ENV_DBG_OPT, ENV_PROGNAME, ENV_DEF_DRIVE, ENV_CWD,
-           ENV_DRIVE "n", ENV_CODEPAGE, ENV_LOWMEM, ENV_APPEND, ENV_DOSVER, ENV_ROWS, ENV_MEMSIZE,
+           ENV_DRIVE "n", ENV_CODEPAGE, ENV_LOWMEM, ENV_MEMFLAG, ENV_LOWMEM, ENV_APPEND, ENV_DOSVER, ENV_ROWS, ENV_MEMSIZE,
 #ifdef EMS_SUPPORT
            ENV_EMSMEM,
 #endif

@@ -3447,10 +3447,27 @@ void init_dos(int argc, char **argv)
     // ending address at 0xB8000.
     // We limit here memory to less than 512K to fix some old programs
     // that check memori using "JLE" instead of "JBE".
-    if(getenv(ENV_LOWMEM))
-        mcb_init(0x80, 0x7FFF);
-    else
-        mcb_init(0x80, 0xB800);
+    {
+        int memflag = 0;
+        const char *p = getenv(ENV_MEMFLAG);
+        if(p) {
+            char *ep;
+            memflag = strtoul(p, &ep, 0);
+            if (*ep)
+                memflag = 0;
+        }
+        if(getenv(ENV_LOWMEM))
+            memflag |= 0x01;
+        int memlow  = 0x80;
+        int memhigh = 0xB800;
+        if(memflag & 0x01)
+            memhigh = 0x7FFF;
+        else if(memflag & 0x02)
+            memhigh = 0xA000;
+        if(memflag & 0x04)
+            memlow = 0x1000;
+        mcb_init(memlow, memhigh);
+    }
 
     // Init SYSVARS
     dos_sysvars = get_static_memory(128, 0);

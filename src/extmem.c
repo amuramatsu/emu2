@@ -2,6 +2,7 @@
 #include "extmem.h"
 #include "emu.h"
 #include "dbg.h"
+#include "env.h"
 
 #include <string.h>
 #include <stdlib.h>
@@ -602,12 +603,19 @@ init_xms(int maxmem)
     EMB_DATA_ROOT->kb_size = maxmem*1024 - XMS_EMB_BASE/1024;
     memory_limit = maxmem*1024*1024 - 1;
 
-#ifdef IA32
+    int memflag = 0;
+    const char *p = getenv(ENV_MEMFLAG);
+    if(p) {
+        char *ep;
+        memflag = strtoul(p, &ep, 0);
+        if (*ep)
+            memflag = 0;
+    }
     // some apps for i386 assume that A20 line is on at beginin (e.g. free386)
-    xms_a20_global_enable = 1;
-    set_a20_enable(1);
-#endif
-    
+    if(memflag & 0x8) {
+        xms_a20_global_enable = 1;
+        set_a20_enable(1);
+    }
     return 1;
 }
 
