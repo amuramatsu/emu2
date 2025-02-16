@@ -99,6 +99,9 @@ static struct filetable {
     int count;
 } filetable[max_handles];
 
+// Emulated indos flag addr
+static uint32_t indos_flag;
+
 #define DOS_SFT_BASE  0x0f8000
 static void update_dos_sft(int sidx, const struct stat *st);
 
@@ -1591,6 +1594,18 @@ static uint8_t *copy_envblock(uint32_t addr, int *envlen)
 }
 #endif
 
+static void incr_indos(void)
+{
+    put8(indos_flag, get8(indos_flag) + 1);
+}
+
+static void decr_indos(void)
+{
+    uint8_t n = get8(indos_flag);
+    if(n)
+        put8(indos_flag, n - 1);
+}
+
 // DOS int 21
 int intr21(void)
 {
@@ -1620,6 +1635,7 @@ int intr21(void)
         intr21_debug();
 
     // Process interrupt
+    incr_indos();
     unsigned ax = cpuGetAX(), ah = ax >> 8;
 
     // Store SS:SP into PSP, used at return from child process
@@ -1762,6 +1778,7 @@ int intr21(void)
         case 0x0A:
             cpuSetAX(ax << 8);
             intr21();
+            decr_indos();
             return ret;
         }
         break;
@@ -2087,6 +2104,10 @@ int intr21(void)
         else if(ax == 0x3301)
             cpuSetDX((cpuGetDX() & 0xFF00) | 1); // Ignore new state
         break;
+    case 0x34: // get Indos flag address
+        cpuSetES(indos_flag >> 4);
+        cpuSetBX(indos_flag & 0x000F);
+        break;
     case 0x35: // get interrupt vector
         cpuSetBX(get16(4 * (ax & 0xFF)));
         cpuSetES(get16(4 * (ax & 0xFF) + 2));
@@ -2219,6 +2240,7 @@ int intr21(void)
             cpuSetFlag(cpuFlag_CF);
             dos_error = 6; // invalid handle
             cpuSetAX(dos_error);
+            decr_indos();
             return ret;
         }
         unsigned len = cpuGetCX();
@@ -2368,6 +2390,7 @@ int intr21(void)
             cpuSetFlag(cpuFlag_CF);
             dos_error = 1;
             cpuSetAX(dos_error);
+            decr_indos();
             return ret;
         }
         pos = ftell(f);
@@ -3190,6 +3213,7 @@ int intr21(void)
         cpuSetFlag(cpuFlag_CF);
         cpuSetAX(ax & 0xFF00);
     }
+    decr_indos();
     return ret;
 }
 
@@ -3484,6 +3508,10 @@ void init_dos(int argc, char **argv)
         'N', 'U', 'L', ' ', ' ', ' ', ' ', ' '
     };
     putmem(dos_sysvars + 24 + 0x22, null_device, sizeof(null_device));
+
+    // Indos Flag
+    indos_flag = get_static_memory(1, 0);
+    put8(indos_flag, 0);
 
     // clear System File Table on DOS system
     put16(DOS_SFT_BASE + 0, 0xffff);
