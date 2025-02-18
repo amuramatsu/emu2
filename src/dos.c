@@ -3471,8 +3471,8 @@ void init_dos(int argc, char **argv)
     // ending address at 0xB8000.
     // We limit here memory to less than 512K to fix some old programs
     // that check memori using "JLE" instead of "JBE".
+    int memflag = 0;
     {
-        int memflag = 0;
         const char *p = getenv(ENV_MEMFLAG);
         if(p) {
             char *ep;
@@ -3482,20 +3482,20 @@ void init_dos(int argc, char **argv)
         }
         if(getenv(ENV_LOWMEM))
             memflag |= 0x01;
-        int memlow  = 0x80;
-        int memhigh = 0xB800;
-        if(memflag & 0x01)
-            memhigh = 0x7FFF;
-        else if(memflag & 0x02)
-            memhigh = 0xA000;
-        if(memflag & 0x04)
-            memlow = 0x1000;
-        mcb_init(memlow, memhigh);
     }
+    int mcb_begin = 0x0080;
+    int mcb_end   = 0xB800;
+    if(memflag & 0x01)
+        mcb_end = 0x7FFF;
+    else if(memflag & 0x02)
+        mcb_end = 0xA000;
+    if(memflag & 0x04)
+        mcb_begin = 0x1000;
+    mcb_init(mcb_begin, mcb_end);
 
     // Init SYSVARS
     dos_sysvars = get_static_memory(128, 0);
-    put16(dos_sysvars + 22, 0x0080); // First MCB
+    put16(dos_sysvars + 22, mcb_begin); // First MCB
     put16(dos_sysvars + 6, 0xffff); // OEM function header
     put16(dos_sysvars + 8, 0xffff); // OEM function header
     put16(dos_sysvars + 28, DOS_SFT_BASE & 0xf); // system file table
