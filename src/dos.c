@@ -3510,8 +3510,10 @@ void init_dos(int argc, char **argv)
     putmem(dos_sysvars + 24 + 0x22, null_device, sizeof(null_device));
 
     // Indos Flag
-    indos_flag = get_static_memory(1, 0);
-    put8(indos_flag, 0);
+    indos_flag = get_static_memory(2, 0);
+    put16(indos_flag, 0);
+    if((dosver & 0xFF) > 2) // critical error flags is placed before indos flag
+        indos_flag++;
 
     // clear System File Table on DOS system
     put16(DOS_SFT_BASE + 0, 0xffff);
