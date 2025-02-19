@@ -1,6 +1,7 @@
 #include "loader.h"
 #include "dbg.h"
 #include "emu.h"
+#include "dosnames.h"
 #include <ctype.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -425,6 +426,18 @@ static void mcb_set_owner(uint16_t mcb, uint16_t owner)
     put16(mcb * 16 + 1, owner);
 }
 
+static void mcb_name(uint16_t mcb, char *buf)
+{
+    for(int i = 0; i < 8; i++)
+        buf[i] = get8(mcb * 16 + 8 + i);
+}
+
+static void mcb_set_name(uint16_t mcb, const char *buf)
+{
+    for(int i = 0; i < 8; i++)
+        put8(mcb * 16 + 8 + i, buf[i]);
+}
+
 static uint16_t mcb_ok(uint16_t mcb)
 {
     return get8(mcb * 16) == 'Z' || get8(mcb * 16) == 'M';
@@ -668,6 +681,11 @@ uint16_t create_PSP(const char *cmdline, const char *environment, uint16_t env_s
     mcb_set_owner(env_mcb, psp_seg);
     mcb_set_owner(jft_mcb, psp_seg);
     mcb_set_owner(psp_mcb, psp_seg);
+
+    // set MCB name
+    char shortname[12];
+    make_fcbname(shortname, progname);
+    mcb_set_name(psp_mcb, shortname);
 
 #ifdef IA32
     uint8_t dosPSP[256];
