@@ -3499,7 +3499,7 @@ void init_dos(int argc, char **argv)
     put16(dos_sysvars + 6, 0xffff); // OEM function header
     put16(dos_sysvars + 8, 0xffff); // OEM function header
     put16(dos_sysvars + 28, DOS_SFT_BASE & 0xf); // system file table
-    put16(dos_sysvars + 32, DOS_SFT_BASE >> 4);  // system file table
+    put16(dos_sysvars + 30, DOS_SFT_BASE >> 4);  // system file table
     // NUL driver
     static const uint8_t null_device[] = {
         0xff, 0xff, 0x00, 0x00,
