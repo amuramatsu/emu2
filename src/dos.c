@@ -3437,14 +3437,15 @@ void init_dos(int argc, char **argv)
         put8(i * 4 + 2, 0);
         put8(i * 4 + 3, 0);
     }
+    // Install IRQ0 handler
+    put16(0x8 * 4 + 0, 0);
+    put16(0x8 * 4 + 2, 0xFFFD);
     // Special hack for DOS/4GW
     for(int i = 0x50; i < 0x60; i++)
         put8(i * 4 + 0, 0x50);
     // Special hack for IBM-PC detect
     put8(0xdd * 4 + 0, 0xdc);
-
-    // install dummy handler for dos4gw support
-    install_dummy_handler(0x8);
+    // install dummy handler for DOS/4GW support
     install_dummy_handler(0x9);
     install_dummy_handler(0x33);
 

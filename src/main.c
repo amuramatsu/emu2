@@ -313,10 +313,12 @@ int bios_routine(unsigned inum)
         intr2a();
     else if(inum == 0x2f)
         intr2f();
-    else if(inum == 0x8)
-        ; // Timer interrupt - nothing to do
+    //else if(inum == 0x8)
+    //    ; // Timer interrupt - nothing to do
     else if(inum == 0x9)
         keyb_handle_irq(); // Keyboard interrupt
+    else if(inum == 0x1c)
+        ; // Timer hook from timer interrupt
 #ifdef EMS_SUPPORT
     else if(use_ems && inum == 0x67)
         intr67();
@@ -369,6 +371,14 @@ NORETURN static void exit_handler(int x)
     exit(1);
 }
 
+static uint8_t irq0_handler[] = {
+    0xCD, 0x1C, // int    0x1c
+    0x50,       // push   ax
+    0xB0, 0x60, // mov    al, 0x60
+    0xE6, 0x20, // out    0x20, al
+    0x58,       // pop    ax
+    0xCF        // iret
+};
 static void init_bios_mem(void)
 {
     // Some of those are also in video.c, we write a
@@ -376,6 +386,11 @@ static void init_bios_mem(void)
     // INT10 functions before reading.
     put8(0x413, 0x80); // ram size: 640k
     put8(0x414, 0x02); //
+
+    // irq0 handler
+    for (int i = 0; i < sizeof(irq0_handler); i++)
+        put8(0xFFFD0 + i, irq0_handler[i]);
+
     // System configuration
     put16(0xFFFE0, 0x08);
     put8(0xFFFE2, 0xFC); // model DOSEMU
@@ -386,6 +401,8 @@ static void init_bios_mem(void)
     put8(0xFFFE7, 0x00); // feature byte 3
     put8(0xFFFE8, 0x00); // feature byte 4
     put8(0xFFFE9, 0x00); // feature byte 5
+
+    // BIOS call return
     put8(0xFFFEF, 0xCF); // IRET
     
     // Store an "INT-19h" instruction in address FFFF:0000
