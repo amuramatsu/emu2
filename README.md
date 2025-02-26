@@ -11,13 +11,13 @@ Some extended features are implemented from
   [NekoProject 21/w](https://simk98.github.io/np21w/).  
   Pentium instruction set and x87 FPU, MMX, SSE, SSE2, SSE3, SSSE3, SSE4 and
   SSE4a instructions are supported. Almost protect mode features are also supported.  
-  IA-32 CPU core is 4x slower than original 286-realmode core.
+  IA-32 CPU core is **4x slower** than original 286-realmode core.
 * XMS 3.0.
 * LIM-EMS 4.0.
 * Some peripherals needed to run DOS extender (a20 gate, 8259 PIC).
 * DBCS codepage support.  
-  Some applications ([VZEditor](https://github.com/vcraftjp/VZEditor), FD,
-  MIEL, FILMNT, LHMNT..) can work on this with `EMU2_CODEPAGE=932`.
+  Some Japanese applications ([VZEditor](https://github.com/vcraftjp/VZEditor), 
+  FD, MIEL, FILMNT, LHMNT..) can work on this with `EMU2_CODEPAGE=932`.
   DBCS filenames are also supported.
 * Load and exec (ah=4B00h) and loading only (ah=4B01h) are implemented as real MS-DOS.   
   Some debuggers like as TurboC++ IDE, [Enhanced DEBUG](https://pcdosretro.gitlab.io/enhdebug.htm)
@@ -37,11 +37,12 @@ Installation
 
 or
 
-    make -f GNUmakefile.ia32
-    sudo make -f GNUmakefile.ia32 install
+    make IA32=1
+    sudo make IA32=1 install
 
-The above installs `emu2` into `$(DESTDIR)${PREFIX}/bin/emu2`, this is
-`/usr/bin/emu2` by default.
+The above installs `emu2` or `emu2-ia32` into `$(DESTDIR)${PREFIX}/bin/emu2` or
+`$(DESTDIR)${PREFIX}/bin/emu2-ia32`
+this is `/usr/bin/emu2` and `/usr/bin/emu2-ia32` by default.
 
 Using the emulator
 ------------------
@@ -111,6 +112,13 @@ The available environment variables are:
                        programs with a bug that checks available memory using
                        "signed" comparison instructions (JLE instead of JBE).
                        This is needed at least for MASM versions 1.0 and 1.10.
+
+- `EMU2_MEMFLAG`       Memory flags:
+    - bit0: limit DOS memory to 512KB. (same as `EMU2_LOWMEM`)
+    - bit1: limit DOS memory to 640KB.
+    - bit2: load after first 64kB. This is same effect of LOADFIX utilities.
+            (for resolve 'Packed file corrupt' error)
+    - bit3: A20 gate enabled by default.
 
 - `EMU2_DOSVER`        Changes the reported DOS version, allowing programs that
                        checks this version to run.  You can specify a major
