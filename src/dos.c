@@ -100,7 +100,8 @@ static struct filetable {
 } filetable[max_handles];
 
 // Emulated indos flag addr
-static uint32_t indos_flag;
+uint32_t indos_flag;
+static uint32_t sda_table;
 
 #define DOS_SFT_BASE  0x0f8000
 static void update_dos_sft(int sidx, const struct stat *st);
@@ -1419,7 +1420,7 @@ static int line_input(FILE *f, uint8_t *buf, int max)
 #ifdef DEBUG_MCB
 static void mcb_debug(void)
 {
-    uint32_t mcb_addr = 0x800;
+    uint32_t mcb_addr = (get16(dos_sysvars + 22) << 4) & 0xFFFFF;
     int flg;
     unsigned int owner, size;
     do
@@ -1428,18 +1429,6 @@ static void mcb_debug(void)
         owner = get16(mcb_addr + 1);
         size = get16(mcb_addr + 3);
         debug(debug_dos, "MEM: '%c': OWNER %04x : ADDR %06x - %06x: SIZE %d\n",
-              flg, owner, mcb_addr, mcb_addr + size*16 + 16, size*16);
-        mcb_addr += size * 16 + 16;
-    }
-    while (flg != 'Z' && mcb_addr < 0x110000);
-
-    mcb_addr = 0x800;
-    do
-    {
-        flg = memory[mcb_addr];
-        owner = memory[mcb_addr + 1] | (memory[mcb_addr + 2] << 8);
-        size = memory[mcb_addr + 3] | (memory[mcb_addr + 4] << 8);
-        debug(debug_dos, "mem: '%c': OWNER %04x : ADDR %06x - %06x: SIZE %d\n",
               flg, owner, mcb_addr, mcb_addr + size*16 + 16, size*16);
         mcb_addr += size * 16 + 16;
     }
@@ -1901,6 +1890,8 @@ int intr21(void)
         break;
     case 0x1A: // SET DTA
         dosDTA = 0xFFFFF & (cpuGetDS() * 16 + cpuGetDX());
+        put16(indos_flag + 0x0b, cpuGetDX());
+        put16(indos_flag + 0x0d, cpuGetDS());
         break;
     case 0x1B: // GET DEFAULT DRIVE INFO
         dos_get_drive_info(0);
@@ -2124,8 +2115,17 @@ int intr21(void)
         cpuSetDX('/');
         break;
     case 0x38: // GET COUNTRY INFO
-        putmem(cpuGetAddrDS(cpuGetDX()), nls_country_info, 34);
+    {
+        // Size of NLS information is 34, but HX DOS Extender treat it is 32
+#ifdef IA32
+        uint32_t addr = cpuGetAddrDS(cpuGetDX());
+        for (int i = 0; i < 32 /*34*/; i++)
+            put8(addr + i , nls_country_info[i]);
+#else
+        putmem(cpuGetAddrDS(cpuGetDX()), nls_country_info, 32 /*34*/);
+#endif
         break;
+    }
     case 0x39: // MKDIR
         create_dir();
         break;
@@ -3003,6 +3003,29 @@ int intr21(void)
     case 0x5B: // CREATE NEW FILE
         dos_open_file(2, cpuGetAX() & 0xFF, cpuGetAddrDS(cpuGetDX()));
         break;
+    case 0x5D: // DOS informations
+        if(cpuGetAX() == 0x5D06)
+        {
+            uint32_t sda = indos_flag - 1;
+            cpuSetDS(sda >> 4);
+            cpuSetSI(sda & 0x0f);
+            cpuSetCX(0x17);
+            cpuSetDX(0x17);
+            cpuClrFlag(cpuFlag_CF);
+        }
+        else if(cpuGetAX() == 0x5D0B)
+        {
+            cpuSetDS(sda_table >> 4);
+            cpuSetSI(sda_table & 0x0f);
+            cpuClrFlag(cpuFlag_CF);
+        }
+        else
+        {
+            dos_error = 1;
+            cpuSetAX(dos_error);
+            cpuSetFlag(cpuFlag_CF);
+        }
+        break;
     case 0x60: // TRUENAME - CANONICALIZE FILENAME OR PATH
     {
 #ifdef IA32
@@ -3510,11 +3533,17 @@ void init_dos(int argc, char **argv)
     };
     putmem(dos_sysvars + 24 + 0x22, null_device, sizeof(null_device));
 
-    // Indos Flag
-    indos_flag = get_static_memory(2, 0);
-    put16(indos_flag, 0);
+    // Indos Flag & Swappable Data Area
+    indos_flag = get_static_memory(0x12, 0);
+    for (int i = 0; i < 0x12; i++)
+        put8(indos_flag + i, 0);
     if((dosver & 0xFF) > 2) // critical error flags is placed before indos flag
         indos_flag++;
+    sda_table = get_static_memory(8, 0);
+    put16(sda_table, 1);
+    put16(sda_table + 2, indos_flag & 0x0F);
+    put16(sda_table + 4, indos_flag >> 4);
+    put16(sda_table + 6, 0x19);
 
     // clear System File Table on DOS system
     put16(DOS_SFT_BASE + 0, 0xffff);

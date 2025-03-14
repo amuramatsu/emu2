@@ -14,6 +14,8 @@ static uint8_t mcb_alloc_st = 0;
 // PSP (Program Segment Prefix) location
 static uint16_t current_PSP;
 
+extern uint32_t indos_flag;
+
 // MS-DOS version to emulate on FCB command line parsing.
 #define FCB_PARSE_DOS (3)
 
@@ -774,6 +776,7 @@ unsigned get_current_PSP(void)
 void set_current_PSP(uint16_t psp_seg)
 {
     current_PSP = psp_seg;
+    put16(indos_flag + 0xF, psp_seg);
 }
 
 static unsigned g16(uint8_t *buf)
