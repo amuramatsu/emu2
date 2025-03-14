@@ -387,8 +387,10 @@ static int dos_open_file(int create, int access_mode, int name_addr)
     int mflag = 0;
     if(create)
     {
+        mflag = O_CREAT | O_RDWR;
         // Use exclusive access on create == 2, to fail on existing file
-        mflag = O_CREAT | O_RDWR | (create == 2 ? O_EXCL : 0);
+        mflag |= (create == 2 ? O_EXCL  :
+                  create == 1 ? O_TRUNC : 0);
         mode = "w+b";
     }
     else
@@ -3206,7 +3208,7 @@ int intr21(void)
         //   01     open if exists already, fail if not                 0
         //   02     clear and open if exists, fail if not               -
         //   10     create if not exists, fail if not.                  2
-        //   11     create if not exists, open if exists                -
+        //   11     create if not exists, open if exists                3
         //   12     create if not exists, clear and open if exists.     1
         int create = -1;
         if(cmod == 0x01)
@@ -3215,6 +3217,8 @@ int intr21(void)
             create = 2;
         else if(cmod == 0x12)
             create = 1;
+        else if(cmod == 0x11)
+            create = 3;
         else
         {
             // TODO: unsupported open moe
