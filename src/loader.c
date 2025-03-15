@@ -665,6 +665,7 @@ uint16_t create_PSP(const char *cmdline, const char *environment, uint16_t env_s
     uint16_t jft_seg = jft_mcb + 1;
     uint16_t psp_seg = psp_mcb + 1;
     current_PSP = psp_seg;
+    put16(indos_flag + 0xF, psp_seg);
 
     if(debug_active(debug_dos))
     {
@@ -677,6 +678,7 @@ uint16_t create_PSP(const char *cmdline, const char *environment, uint16_t env_s
             p += strlen(p) + 1;
         }
         debug(debug_dos, "\tenv size: %u at $%04x\n", env_size, env_mcb + 1U);
+        debug(debug_dos, "\tjft at $%08x\n", (jft_mcb+1) << 4);
     }
 
     // Fill MCB owners:
@@ -770,6 +772,9 @@ uint16_t create_PSP(const char *cmdline, const char *environment, uint16_t env_s
 
 unsigned get_current_PSP(void)
 {
+    unsigned n = get16(indos_flag + 0xF) & 0xffff;
+    if(current_PSP != n)
+        debug(debug_dos, "PSP is broken? %04x %04x\n", n, current_PSP);
     return current_PSP;
 }
 

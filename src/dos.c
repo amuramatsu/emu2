@@ -164,7 +164,7 @@ static int get_new_sft(void)
 static uint32_t get_jft_addr(unsigned cur_psp, int *num)
 {
     unsigned psp_addr = get_current_PSP() * 16;
-    *num = get8(psp_addr + 0x32) & 0xff;
+    *num = get16(psp_addr + 0x32) & 0xffff;
     return cpuGetAddress(get16(psp_addr + 0x36),
                          get16(psp_addr + 0x34));
 }
@@ -174,6 +174,7 @@ static void get_new_handle(int *handle, int *sft_idx)
     int handle_num;
     uint32_t jft_addr = get_jft_addr(get_current_PSP(), &handle_num);
     int i;
+    debug(debug_dos, "jft %08x, handle_num %d\n", jft_addr, handle_num);
     for(i = 0; i < handle_num; i++)
         if (get8(jft_addr + i) == 0xFF)
             break;
@@ -186,6 +187,8 @@ static void get_new_handle(int *handle, int *sft_idx)
     int sidx = get_new_sft();
     if(i == handle_num || sidx < 0)
     {
+        if(sidx>=0)
+            filetable[sidx].count = 0;
         *handle = *sft_idx = -1;
         debug(debug_dos, "no new handle or sft\n");
         return;
@@ -2369,6 +2372,7 @@ int intr21(void)
         else
             pos = pos + (cpuGetCX() << 16);
 
+        debug(debug_dos, "\t%d: %p\n", sidx, f);
         debug(debug_dos, "\tlseek-%02x pos = %ld\n", ax & 0xFF, pos);
         if(!f)
         {
@@ -2735,6 +2739,8 @@ int intr21(void)
             {
                 // Init DTA
                 dosDTA = get_current_PSP() * 16 + 0x80;
+                put16(indos_flag + 0x0b, 0x80);
+                put16(indos_flag + 0x0d, get_current_PSP());
 
                 // Init DOS flags
                 cpuSetStartupFlag(cpuFlag_IF);
@@ -3682,6 +3688,8 @@ void init_dos(int argc, char **argv)
 
     // Init DTA
     dosDTA = get_current_PSP() * 16 + 0x80;
+    put16(indos_flag + 0x0b, 0x80);
+    put16(indos_flag + 0x0d, get_current_PSP());
 
     // Init DOS flags
     cpuSetStartupFlag(cpuFlag_IF);
