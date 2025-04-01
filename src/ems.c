@@ -810,12 +810,21 @@ intr67(void)
             uint32_t len = get32(addr);
             int src_type = get8(addr + 4);
             uint16_t src_handle = get16(addr + 5);
-            uint16_t src_pg = get16(addr + 7);
-            uint32_t src_offset = get16(addr + 9);
+            uint32_t src_offset = get16(addr + 7);
+            uint16_t src_pg = get16(addr + 9);
             int dest_type = get8(addr + 11);
             uint16_t dest_handle = get16(addr + 12);
-            uint16_t dest_pg = get16(addr + 14);
-            uint32_t dest_offset = get16(addr + 16);
+            uint32_t dest_offset = get16(addr + 14);
+            uint16_t dest_pg = get16(addr + 16);
+
+            debug(debug_dos, "EMM %s len=%d\n",
+                  exchange ? "Exchange" : "Move", len);
+            debug(debug_dos, "  SRC %s %d %04x:%04x\n",
+                  src_type ? "EMM" : "Cnv",
+                  src_handle, src_pg, src_offset);
+            debug(debug_dos, "  DST %s %d %04x:%04x\n",
+                  dest_type ? "EMM" : "Cnv",
+                  dest_handle, dest_pg, dest_offset);
 
             struct ems_data *src_ems = NULL;
             struct ems_data *dest_ems = NULL;
@@ -887,7 +896,7 @@ intr67(void)
             else if (src_ems != NULL && dest_ems == NULL) { /* ems-to-conv */
                 uint32_t dest_addr = cpuGetAddress(dest_pg, dest_offset);
                 int end_pg = src_pg + (src_offset + len) / EMS_PAGESIZE;
-                if (src_ems-> pages < end_pg) {
+                if (src_ems->pages < end_pg) {
                     set_emm_result(ax,
                                    EMM_STATUS_EMS_SRC_OR_DEST_IS_OUT_OF_RANGE);
                     break;
