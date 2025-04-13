@@ -7,9 +7,9 @@
 #include "emu.h"
 #include "env.h"
 #include "keyb.h"
+#include "os.h"
 #include "timer.h"
 #include "video.h"
-#include "os.h"
 #ifdef EMS_SUPPORT
 #include "ems.h"
 #endif /* EMS_SUPPORT */
@@ -29,7 +29,7 @@
 
 uint8_t read_port(unsigned port)
 {
-    //debug(debug_port, "port read %04x\n", port);
+    // debug(debug_port, "port read %04x\n", port);
     if(port == 0x3DA) // CGA status register
     {
         static int retrace = 0;
@@ -46,9 +46,9 @@ uint8_t read_port(unsigned port)
         return keyb_read_port(port);
     else if(port == 0x70 || port == 0x71 || port == 0x92) // CMOS & sys port A
         return port_misc_read(port);
-    else if (port == 0xd0) // Secondary DMAC status: free386 check this port
+    else if(port == 0xd0) // Secondary DMAC status: free386 check this port
         return 0x00;
-    else if (port == 0xda) // Secondary DMAC Intrmed: free386 check this port
+    else if(port == 0xda) // Secondary DMAC Intrmed: free386 check this port
         return 0x00;
     debug(debug_port, "NOT_IMPL port read %04x\n", port);
     return 0xFF;
@@ -56,7 +56,7 @@ uint8_t read_port(unsigned port)
 
 void write_port(unsigned port, uint8_t value)
 {
-    //debug(debug_port, "port write %04x <- %02x\n", port, value);
+    // debug(debug_port, "port write %04x <- %02x\n", port, value);
     if(port >= 0x40 && port <= 0x43)
         port_timer_write(port, value);
     else if(port == 0x03D4 || port == 0x03D5)
@@ -81,7 +81,8 @@ void emulator_update(void)
     fflush(stdout);
 }
 
-struct farcall_entry_data {
+struct farcall_entry_data
+{
     uint32_t return_addr;
     void (*func)(void);
 };
@@ -114,7 +115,8 @@ static void farcall_entry(void)
 
     for(int i = 0; i < NELEMENTS(FARCALL_ENTRY_LIST); i++)
     {
-        if(FARCALL_ENTRY_LIST[i].return_addr == ret_addr) {
+        if(FARCALL_ENTRY_LIST[i].return_addr == ret_addr)
+        {
             FARCALL_ENTRY_LIST[i].func();
             return;
         }
@@ -181,38 +183,42 @@ static void intr15(void)
 #ifdef IA32
         meml_reads(descaddr, desc, sizeof(desc));
 #else
-        memcpy(desc, memory+descaddr, sizeof(desc));
+        memcpy(desc, memory + descaddr, sizeof(desc));
 #endif
         // Segment Descriptor
         // 0x00 | Limit[15:0]          | Base[15:0]                         |
         // 0x04 | Base[23:0] | Attr    | Flags | Limit[19:16] | Base[31:24] |
-        uint32_t src  = (desc[0x17]<<24) | (desc[0x14]<<16) |
-                        (desc[0x13]<<8)  | desc[0x12];
-        uint32_t slim = ((desc[0x16]&0xF) << 16) | (desc[0x11]<<8) | desc[0x10];
-        uint32_t dst  = (desc[0x1f]<<24) | (desc[0x1c]<<16) |
-                        (desc[0x1b]<<8)  | desc[0x1a];
-        uint32_t dlim = ((desc[0x1e]&0xF) << 16) | (desc[0x19]<<8) | desc[0x18];
-        if(desc[0x15] != 0x92 || desc[0x1d] != 0x92 ||
-           (desc[0x16] & 0xF0) || (desc[0x1e] & 0xF0)) {
+        uint32_t src =
+            (desc[0x17] << 24) | (desc[0x14] << 16) | (desc[0x13] << 8) | desc[0x12];
+        uint32_t slim = ((desc[0x16] & 0xF) << 16) | (desc[0x11] << 8) | desc[0x10];
+        uint32_t dst =
+            (desc[0x1f] << 24) | (desc[0x1c] << 16) | (desc[0x1b] << 8) | desc[0x1a];
+        uint32_t dlim = ((desc[0x1e] & 0xF) << 16) | (desc[0x19] << 8) | desc[0x18];
+        if(desc[0x15] != 0x92 || desc[0x1d] != 0x92 || (desc[0x16] & 0xF0) ||
+           (desc[0x1e] & 0xF0))
+        {
             cpuSetFlag(cpuFlag_CF);
             cpuSetAX((ax & 0xFF) | 0x02);
             debug(debug_int, "S-15%04X get extended memory copy ATTR ERROR\n", ax);
         }
-        else if(num*2 > slim+1 || num*2 > dlim+1) {
+        else if(num * 2 > slim + 1 || num * 2 > dlim + 1)
+        {
             cpuSetFlag(cpuFlag_CF);
             cpuSetAX((ax & 0xFF) | 0x02);
             debug(debug_int, "S-15%04X get extended memory copy LIMIT ERROR\n", ax);
         }
-        else {
+        else
+        {
 #ifdef IA32
-            for (int i=0; i<num; i++)
-                put16(dst+i*2, get16(src+i*2));
+            for(int i = 0; i < num; i++)
+                put16(dst + i * 2, get16(src + i * 2));
 #else
-            memcpy(memory+dst, memory+src, num*2);
+            memcpy(memory + dst, memory + src, num * 2);
 #endif
             cpuClrFlag(cpuFlag_CF);
             cpuSetAX(ax & 0xFF);
-            debug(debug_int, "S-15%04X get extended memory copy %08X -> %08X: word %d\n", ax, src, dst, num);
+            debug(debug_int, "S-15%04X get extended memory copy %08X -> %08X: word %d\n",
+                  ax, src, dst, num);
         }
     }
     else if((ax & 0xFF00) == 0x8800) // get extended memory size (return 0)
@@ -313,8 +319,8 @@ int bios_routine(unsigned inum)
         intr2a();
     else if(inum == 0x2f)
         intr2f();
-    //else if(inum == 0x8)
-    //    ; // Timer interrupt - nothing to do
+    // else if(inum == 0x8)
+    //     ; // Timer interrupt - nothing to do
     else if(inum == 0x9)
         keyb_handle_irq(); // Keyboard interrupt
     else if(inum == 0x1c)
@@ -323,7 +329,7 @@ int bios_routine(unsigned inum)
     else if(use_ems && inum == 0x67)
         intr67();
 #endif
-    else if (inum == 0xFE) // farcall entry for XMS and etc. functions
+    else if(inum == 0xFE) // farcall entry for XMS and etc. functions
         farcall_entry();
     else
         debug(debug_int, "UNHANDLED INT %02x, AX=%04x\n", inum, cpuGetAX());
@@ -388,7 +394,7 @@ static void init_bios_mem(void)
     put8(0x414, 0x02); //
 
     // irq0 handler
-    for (int i = 0; i < sizeof(irq0_handler); i++)
+    for(int i = 0; i < sizeof(irq0_handler); i++)
         put8(0xFFFD0 + i, irq0_handler[i]);
 
     // System configuration
@@ -404,7 +410,7 @@ static void init_bios_mem(void)
 
     // BIOS call return
     put8(0xFFFEF, 0xCF); // IRET
-    
+
     // Store an "INT-19h" instruction in address FFFF:0000
     put8(0xFFFF0, 0xCB);
     put8(0xFFFF1, 0x19);
@@ -456,11 +462,8 @@ int main(int argc, char **argv)
         // Process options
         switch(flag)
         {
-        case 'h':
-            print_usage();
-        case 'v':
-            print_version();
-            exit(EXIT_SUCCESS);
+        case 'h': print_usage();
+        case 'v': print_version(); exit(EXIT_SUCCESS);
         case 'b':
             bin_load_addr = strtol(opt, &ep, 0);
             if(*ep || bin_load_addr < 0 || bin_load_addr > 0xFFFF0)
@@ -498,8 +501,7 @@ int main(int argc, char **argv)
             }
         }
         break;
-        default:
-            print_usage_error("invalid option '-%c'.", flag);
+        default: print_usage_error("invalid option '-%c'.", flag);
         }
     }
 
@@ -514,7 +516,7 @@ int main(int argc, char **argv)
 
     // Init debug facilities
     init_debug(argv[1]);
-    
+
     // Allocate memory
     const char *memsize_str = getenv(ENV_MEMSIZE);
 #ifdef IA32
@@ -522,25 +524,25 @@ int main(int argc, char **argv)
 #else
     int memsize = 16;
 #endif
-    if (memsize_str != NULL)
+    if(memsize_str != NULL)
     {
         char *ep;
         memsize = strtol(memsize_str, &ep, 0);
 #ifdef IA32
-        if (*ep  || memsize < 2 || memsize > 1024)
+        if(*ep || memsize < 2 || memsize > 1024)
             print_error("%s must be set between 2 to 1024\n", ENV_MEMSIZE);
 #else
-        if (*ep  || memsize < 2 || memsize > 32)
+        if(*ep || memsize < 2 || memsize > 32)
             print_error("%s must be set between 2 to 16\n", ENV_MEMSIZE);
 #endif
-        if ((memsize & (memsize - 1)) != 0)
+        if((memsize & (memsize - 1)) != 0)
             print_error("%s must be power of 2\n", ENV_MEMSIZE);
     }
     debug(debug_dos, "set MEMSIZE = %d\n", memsize);
     memory = malloc(memsize * 1024 * 1024);
     if(!memory)
         print_error("cannot allocate memory %d MB\n", memsize);
-    memset(memory, 0, 1024*1024); // clear first 1MB
+    memset(memory, 0, 1024 * 1024); // clear first 1MB
 
     init_cpu();
 

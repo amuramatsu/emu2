@@ -9,22 +9,18 @@
 
 extern int use_ems;
 
-static inline int
-in_ems_pageframe(uint32_t addr)
+static inline int in_ems_pageframe(uint32_t addr)
 {
-    if (use_ems &&
-        addr >= (EMS_PAGEFRAME_SEG << 4) &&
-        addr < (EMS_PAGEFRAME_SEG << 4) + 0x10000)
+    if(use_ems && addr >= (EMS_PAGEFRAME_SEG << 4) &&
+       addr < (EMS_PAGEFRAME_SEG << 4) + 0x10000)
         return 1;
     return 0;
 }
 
-static inline int
-in_ems_pageframe2(uint32_t addr, int size)
+static inline int in_ems_pageframe2(uint32_t addr, int size)
 {
-    if (use_ems &&
-        addr + size - 1 >= (EMS_PAGEFRAME_SEG << 4) &&
-        addr - size + 1< (EMS_PAGEFRAME_SEG << 4) + 0x10000)
+    if(use_ems && addr + size - 1 >= (EMS_PAGEFRAME_SEG << 4) &&
+       addr - size + 1 < (EMS_PAGEFRAME_SEG << 4) + 0x10000)
         return 1;
     return 0;
 }

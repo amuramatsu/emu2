@@ -1,7 +1,7 @@
 #include "loader.h"
 #include "dbg.h"
-#include "emu.h"
 #include "dosnames.h"
+#include "emu.h"
 #include <ctype.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -329,9 +329,7 @@ static void cmdline_to_fcb(const char *cmd_line, uint8_t *fcb1, uint8_t *fcb2)
                 break;
             case '+':
             case ';':
-            case ':':
-                state = FCB_PARSE_EXIT;
-                break;
+            case ':': state = FCB_PARSE_EXIT; break;
             default:
                 if(valid_fcb_sep(c))
                 {
@@ -365,9 +363,7 @@ static void cmdline_to_fcb(const char *cmd_line, uint8_t *fcb1, uint8_t *fcb2)
             case '.':
             case '+':
             case ';':
-            case ':':
-                state = FCB_PARSE_EXIT;
-                break;
+            case ':': state = FCB_PARSE_EXIT; break;
             default:
                 if(valid_fcb_sep(c))
                 {
@@ -387,8 +383,7 @@ static void cmdline_to_fcb(const char *cmd_line, uint8_t *fcb1, uint8_t *fcb2)
                 break;
             }
             break;
-        default:
-            break;
+        default: break;
         }
         if(state == FCB_PARSE_EXIT)
         {
@@ -596,7 +591,7 @@ uint16_t mem_alloc_segment(uint16_t size, uint16_t *max)
 void mem_free_owned(unsigned psp_seg)
 {
     int mcb = mcb_start;
-    while (1)
+    while(1)
     {
         if(mcb_owner(mcb) == psp_seg)
             mcb_free(mcb);
@@ -678,7 +673,7 @@ uint16_t create_PSP(const char *cmdline, const char *environment, uint16_t env_s
             p += strlen(p) + 1;
         }
         debug(debug_dos, "\tenv size: %u at $%04x\n", env_size, env_mcb + 1U);
-        debug(debug_dos, "\tjft at $%08x\n", (jft_mcb+1) << 4);
+        debug(debug_dos, "\tjft at $%08x\n", (jft_mcb + 1) << 4);
     }
 
     // Fill MCB owners:
@@ -707,18 +702,18 @@ uint16_t create_PSP(const char *cmdline, const char *environment, uint16_t env_s
     dosPSP[7] = 0xFE;                   //     this jumps to 0xC0, where an
     dosPSP[8] = 0x1D;                   //     INT 21h is patched.
     dosPSP[9] = 0xF0;                   //
-    dosPSP[10] = get8(0x22*4);          // Handler for INT 22h
-    dosPSP[11] = get8(0x22*4+1);        //
-    dosPSP[12] = get8(0x22*4+2);        //
-    dosPSP[13] = get8(0x22*4+3);        //
-    dosPSP[14] = get8(0x23*4);          // Handler for INT 23h
-    dosPSP[15] = get8(0x23*4+1);        //
-    dosPSP[16] = get8(0x23*4+2);        //
-    dosPSP[17] = get8(0x23*4+3);        //
-    dosPSP[18] = get8(0x24*4);          // Handler for INT 24h
-    dosPSP[19] = get8(0x24*4+1);        //
-    dosPSP[20] = get8(0x24*4+2);        //
-    dosPSP[21] = get8(0x24*4+3);        //
+    dosPSP[10] = get8(0x22 * 4);        // Handler for INT 22h
+    dosPSP[11] = get8(0x22 * 4 + 1);    //
+    dosPSP[12] = get8(0x22 * 4 + 2);    //
+    dosPSP[13] = get8(0x22 * 4 + 3);    //
+    dosPSP[14] = get8(0x23 * 4);        // Handler for INT 23h
+    dosPSP[15] = get8(0x23 * 4 + 1);    //
+    dosPSP[16] = get8(0x23 * 4 + 2);    //
+    dosPSP[17] = get8(0x23 * 4 + 3);    //
+    dosPSP[18] = get8(0x24 * 4);        // Handler for INT 24h
+    dosPSP[19] = get8(0x24 * 4 + 1);    //
+    dosPSP[20] = get8(0x24 * 4 + 2);    //
+    dosPSP[21] = get8(0x24 * 4 + 3);    //
     dosPSP[22] = 0xFE;                  // 16: Parent PSP, use special value of FFFE
     dosPSP[23] = 0xFF;                  //     to signal no parent DOS process
     dosPSP[44] = 0xFF & env_seg;        // 2C: environment segment
@@ -765,7 +760,7 @@ uint16_t create_PSP(const char *cmdline, const char *environment, uint16_t env_s
     meml_writes(psp_seg * 16, dosPSP, 256);
 #endif
     // Clear JFT
-    for(int i = 0; i<255; i++)
+    for(int i = 0; i < 255; i++)
         put8(jft_seg * 16 + i, 0xFF);
     return psp_mcb;
 }
@@ -811,9 +806,9 @@ int dos_read_overlay(FILE *f, uint16_t load_seg, uint16_t reloc_seg)
         if(n)
             meml_writes(mem, loadbuf, n);
         free(loadbuf);
-#else //not IA32
+#else  // not IA32
         n = fread(memory + mem, 1, max, f);
-#endif //IA32
+#endif // IA32
         return n == 0;
     }
 
@@ -839,9 +834,9 @@ int dos_read_overlay(FILE *f, uint16_t load_seg, uint16_t reloc_seg)
     if(n == data_size)
         meml_writes(load_seg * 16, loadbuf, n);
     free(loadbuf);
-#else //not IA32
+#else  // not IA32
     n = fread(memory + load_seg * 16, 1, data_size, f);
-#endif //IA32
+#endif // IA32
     debug(debug_dos, "\texe read %u of %u data bytes\n", n, data_size);
     if(n < data_size)
         return 1;
@@ -893,7 +888,7 @@ int dos_load_exe(FILE *f, uint16_t psp_mcb)
         if(n)
             meml_writes(mem, loadbuf, n);
         free(loadbuf);
-#else //not IA32
+#else // not IA32
         n = fread(memory + mem, 1, max, f);
 #endif
         if(!n)
@@ -943,7 +938,8 @@ int dos_load_exe(FILE *f, uint16_t psp_mcb)
     uint16_t psp_sz = mcb_resize(psp_mcb, max_sz);
     if(psp_sz < min_sz && psp_sz < max_sz)
     {
-        debug(debug_dos, "\texe read, not enough memory! (need:%d) (actual:%d)\n", min_sz, psp_sz);
+        debug(debug_dos, "\texe read, not enough memory! (need:%d) (actual:%d)\n", min_sz,
+              psp_sz);
         return 0;
     }
 
@@ -963,9 +959,9 @@ int dos_load_exe(FILE *f, uint16_t psp_mcb)
     if(n)
         meml_writes(load_seg * 16, loadbuf, n);
     free(loadbuf);
-#else //not IA32
+#else  // not IA32
     n = fread(memory + load_seg * 16, 1, data_size, f);
-#endif //IA32
+#endif // IA32
     // Adjust data_size depending on extra_bytes
     if(extra_bytes)
         data_size = data_size - 512 + extra_bytes;

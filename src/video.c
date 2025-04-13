@@ -54,7 +54,8 @@ static uint16_t crtc_cursor_loc;
 // Using TopView I/F
 static int using_topview;
 // VRAM cell type (SBCS or DBCS)
-enum vram_cell_type {
+enum vram_cell_type
+{
     VRAM_CELL_SBCS,
     VRAM_CELL_DBCS_1ST,
     VRAM_CELL_DBCS_2ND
@@ -162,8 +163,7 @@ static void set_text_mode(int clear)
         uint16_t *vm = (uint16_t *)(memory + 0xB8000);
         for(int i = 0; i < 16384; i++)
             vm[i] = get_cell(0x20, 0x07).value;
-        for(int i = 0; i < sizeof(vram_cell_type)/sizeof(vram_cell_type[0]);
-             i++)
+        for(int i = 0; i < sizeof(vram_cell_type) / sizeof(vram_cell_type[0]); i++)
             vram_cell_type[i] = VRAM_CELL_SBCS;
         vm = (uint16_t *)(memory + TOPVIEW_BUFFER_ADDR);
         for(int i = 0; i < 0x8000; i++)
@@ -191,22 +191,22 @@ static void set_text_mode(int clear)
     vid_sy = 25;
     vid_font_lines = vid_scan_lines / vid_sy;
     // Fill memory block
-    put8(0x449, 0x03);                                // video mode
-    put8(0x44A, vid_sx);                              // screen columns
-    put8(0x44B, 0);                                   // ...
-    update_posxy();                                   // Updates 0x4C to 0x5F and 0x62
-    put8(0x460, 0x07);                                // cursor end scan line
-    put8(0x461, 0x06);                                // cursor start scan line
-    put8(0x463, 0xD4);                                // I/O port of video CRTC
-    put8(0x464, 0x03);                                // ...
-    put8(0x465, 0x29);                                // video mode select reg
-    put8(0x466, 0x30);                                // CGA palette select
-    put8(0x484, vid_sy - 1);                          // screen rows - 1
-    put8(0x485, vid_font_lines);                      // character font height
-    put8(0x486, 0);                                   // ...
-    put8(0x487, clear ? 0x60 : 0xE0);                 // EGA control
-    put8(0x488, 0x09);                                // EGA switches
-    put8(0x489, !ega ? 0xC1 : !vga ? 0x41 : 0x51);    // MODE set option control
+    put8(0x449, 0x03);                             // video mode
+    put8(0x44A, vid_sx);                           // screen columns
+    put8(0x44B, 0);                                // ...
+    update_posxy();                                // Updates 0x4C to 0x5F and 0x62
+    put8(0x460, 0x07);                             // cursor end scan line
+    put8(0x461, 0x06);                             // cursor start scan line
+    put8(0x463, 0xD4);                             // I/O port of video CRTC
+    put8(0x464, 0x03);                             // ...
+    put8(0x465, 0x29);                             // video mode select reg
+    put8(0x466, 0x30);                             // CGA palette select
+    put8(0x484, vid_sy - 1);                       // screen rows - 1
+    put8(0x485, vid_font_lines);                   // character font height
+    put8(0x486, 0);                                // ...
+    put8(0x487, clear ? 0x60 : 0xE0);              // EGA control
+    put8(0x488, 0x09);                             // EGA switches
+    put8(0x489, !ega ? 0xC1 : !vga ? 0x41 : 0x51); // MODE set option control
 }
 
 static unsigned get_last_used_row(void)
@@ -304,17 +304,17 @@ static void vid_set_font(unsigned lines)
 void video_init_mem(void)
 {
     // Fill the functionality table
-    put8(0xC0100, 0x08);    // Only mode 3 supported
+    put8(0xC0100, 0x08); // Only mode 3 supported
     put8(0xC0101, 0x00);
     put8(0xC0102, 0x00);
-    put8(0xC0107, 0x07);    // Support 300, 350 and 400 scanlines
-    put8(0xC0108, 0x00);    // Active character blocks?
-    put8(0xC0109, 0x00);    // MAximum character blocks?
-    put8(0xC0108, 0xFF);    // Support functions
+    put8(0xC0107, 0x07); // Support 300, 350 and 400 scanlines
+    put8(0xC0108, 0x00); // Active character blocks?
+    put8(0xC0109, 0x00); // MAximum character blocks?
+    put8(0xC0108, 0xFF); // Support functions
 
     // Need to setup VGA/EGA/CGA registers before calling set_text_mode:
-    put8(0x488, 9);         // No CGA emulation
-    put8(0x489, 0x10);      // VGA, 400 lines
+    put8(0x488, 9);    // No CGA emulation
+    put8(0x489, 0x10); // VGA, 400 lines
     // Set video mode and clear screen
     set_text_mode(1);
     // Setup non-standard mode:
@@ -389,7 +389,8 @@ static void term_goto_xy(unsigned x, unsigned y)
 }
 
 // Outputs a character with the given attributes at the given position
-static void put_vc_xy_dbcs(uint8_t vc1, uint8_t vc2, uint8_t color, unsigned x, unsigned y)
+static void put_vc_xy_dbcs(uint8_t vc1, uint8_t vc2, uint8_t color, unsigned x,
+                           unsigned y)
 {
     term_goto_xy(x, y);
     set_color(color);
@@ -433,7 +434,7 @@ static void debug_screen(void)
     char *buf = malloc(3 * vid_sx + 8);
     if(!buf)
         return;
-//    debug(debug_video, "- screen dump -\n");
+    //    debug(debug_video, "- screen dump -\n");
     for(unsigned y = 0; y < vid_sy; y++)
     {
         for(unsigned x = 0; x < vid_sx; x++)
@@ -486,7 +487,7 @@ void check_screen(void)
 
             if(check_dbcs_1st(cell.chr))
             {
-                if (x == vid_sx-1)
+                if(x == vid_sx - 1)
                 {
                     cell.chr = ' ';
                     vm[x + y * vid_sx] = cell.value;
@@ -499,12 +500,12 @@ void check_screen(void)
                     union term_cell cell2;
                     cell2.value = vm[x + 1 + y * vid_sx];
                     if(cell.value != term_screen[y][x].value ||
-                       cell2.value != term_screen[y][x+1].value)
+                       cell2.value != term_screen[y][x + 1].value)
                     {
                         term_screen[y][x] = cell;
-                        term_screen[y][x+1] = cell2;
+                        term_screen[y][x + 1] = cell2;
                         set_xy_type(x, y, VRAM_CELL_DBCS_1ST);
-                        set_xy_type(x+1, y, VRAM_CELL_DBCS_2ND);
+                        set_xy_type(x + 1, y, VRAM_CELL_DBCS_2ND);
                         put_vc_xy_dbcs(cell.chr, cell2.chr, cell.color, x, y);
                     }
                     x++;
@@ -639,7 +640,7 @@ static void vid_scroll_dwn(uint8_t x0, uint8_t y0, uint8_t x1, uint8_t y1, unsig
             for(unsigned x = x0; x <= x1; x++)
                 vm[x + y * vid_sx] = get_cell(0x20, vid_color).value;
     }
-    
+
     debug(debug_video, "after scroll\n");
     debug_screen();
 }
@@ -739,18 +740,18 @@ static void video_putchar(uint8_t ch, uint16_t at, int page)
         }
         else
         {
-            int lastx = vid_posx[page] >= vid_sx-1;
-            if (!lastx &&
-                get_xy_type(vid_posx[page], vid_posy[page]) == VRAM_CELL_DBCS_1ST)
+            int lastx = vid_posx[page] >= vid_sx - 1;
+            if(!lastx &&
+               get_xy_type(vid_posx[page], vid_posy[page]) == VRAM_CELL_DBCS_1ST)
             {
-                set_xy_char(vid_posx[page]+1, vid_posy[page], 0x20, page);
-                set_xy_type(vid_posx[page]+1, vid_posy[page], VRAM_CELL_SBCS);
+                set_xy_char(vid_posx[page] + 1, vid_posy[page], 0x20, page);
+                set_xy_type(vid_posx[page] + 1, vid_posy[page], VRAM_CELL_SBCS);
             }
-            if (!video_putchar_cont && vid_posx[page] > 0 &&
-                get_xy_type(vid_posx[page], vid_posy[page]) == VRAM_CELL_DBCS_2ND)
+            if(!video_putchar_cont && vid_posx[page] > 0 &&
+               get_xy_type(vid_posx[page], vid_posy[page]) == VRAM_CELL_DBCS_2ND)
             {
-                set_xy_char(vid_posx[page]-1, vid_posy[page], 0x20, page);
-                set_xy_type(vid_posx[page]-1, vid_posy[page], VRAM_CELL_SBCS);
+                set_xy_char(vid_posx[page] - 1, vid_posy[page], 0x20, page);
+                set_xy_type(vid_posx[page] - 1, vid_posy[page], VRAM_CELL_SBCS);
             }
             if(check_dbcs_1st(ch))
             {
@@ -764,7 +765,7 @@ static void video_putchar(uint8_t ch, uint16_t at, int page)
             set_xy_char(vid_posx[page], vid_posy[page], ch, page);
         else
             set_xy_full(vid_posx[page], vid_posy[page], ch, at, page);
-        set_xy_type(vid_posx[page]+1, vid_posy[page], type);
+        set_xy_type(vid_posx[page] + 1, vid_posy[page], type);
         vid_posx[page]++;
         if(vid_posx[page] >= vid_sx)
         {
@@ -1055,25 +1056,25 @@ void intr10(void)
                                 : vid_scan_lines <= 400 ? 2
                                                         : 3;
                 // Store state information
-                for(int i=0; i<64; i++)
+                for(int i = 0; i < 64; i++)
                     put8(addr + i, 0);
-                put8(addr + 0, 0x00);    // static-func table at C000:0100
-                put8(addr + 1, 0x01);    // ...
-                put8(addr + 2, 0x00);    // ...
-                put8(addr + 3, 0xC0);    // ...
+                put8(addr + 0, 0x00); // static-func table at C000:0100
+                put8(addr + 1, 0x01); // ...
+                put8(addr + 2, 0x00); // ...
+                put8(addr + 3, 0xC0); // ...
                 // First 30 bytes copied from BIOS memory 40h:49h to 40h:66h
-                for(int i=0; i<30; i++)
+                for(int i = 0; i < 30; i++)
                     put8(addr + 4 + i, get8(0x449 + i));
-                put8(addr + 34, vid_sy);                 // # of rows
-                put8(addr + 35, vid_font_lines);         // # of scan lines in font
-                put8(addr + 36, 0);                      //
-                put8(addr + 37, 8);                      // combination code, analog VGA
-                put8(addr + 38, 0);                      //
-                put8(addr + 39, 0x10);                   //
-                put8(addr + 40, 0x00);                   // # of colors: 0010
-                put8(addr + 41, vid_sy > 25 ? 4 : 8);    // # of pages
-                put8(addr + 42, scan_code);              // # of scan-lines
-                put8(addr + 49, 3);                      // 256k memory
+                put8(addr + 34, vid_sy);              // # of rows
+                put8(addr + 35, vid_font_lines);      // # of scan lines in font
+                put8(addr + 36, 0);                   //
+                put8(addr + 37, 8);                   // combination code, analog VGA
+                put8(addr + 38, 0);                   //
+                put8(addr + 39, 0x10);                //
+                put8(addr + 40, 0x00);                // # of colors: 0010
+                put8(addr + 41, vid_sy > 25 ? 4 : 8); // # of pages
+                put8(addr + 42, scan_code);           // # of scan-lines
+                put8(addr + 49, 3);                   // 256k memory
                 cpuSetAX(0x1B1B);
             }
         }
@@ -1096,63 +1097,62 @@ void intr10(void)
         cpuSetDI(TOPVIEW_BUFFER_ADDR & 0x000f);
         break;
     case 0xFF: // TopView I/F: update video buffer
+    {
+        unsigned int addr = (((unsigned)cpuGetES()) << 4) + cpuGetDI();
+        int start = (addr - TOPVIEW_BUFFER_ADDR) / sizeof(term_screen[0][0]);
+        int len = cpuGetCX();
+        uint16_t *vm = (uint16_t *)(memory + 0xB8000);
+        uint16_t *vm_tv = (uint16_t *)(memory + TOPVIEW_BUFFER_ADDR);
+        int in_dbcs = 0;
+        debug(debug_video, "  start=%d, len=%d\n", start, len);
+        if(start > 0 && vram_cell_type[start] == VRAM_CELL_DBCS_2ND)
         {
-            unsigned int addr = (((unsigned)cpuGetES()) << 4) + cpuGetDI();
-            int start = (addr - TOPVIEW_BUFFER_ADDR)/sizeof(term_screen[0][0]);
-            int len = cpuGetCX();
-            uint16_t *vm = (uint16_t *)(memory + 0xB8000);
-            uint16_t *vm_tv = (uint16_t *)(memory + TOPVIEW_BUFFER_ADDR);
-            int in_dbcs = 0;
-            debug(debug_video, "  start=%d, len=%d\n", start, len);
-            if(start > 0 && vram_cell_type[start] == VRAM_CELL_DBCS_2ND)
+            union term_cell cell;
+            cell.value = vm[start - 1];
+            cell.chr = 0x20;
+            vm[start - 1] = cell.value;
+            vram_cell_type[start - 1] = VRAM_CELL_SBCS;
+        }
+        for(int i = 0; i < len; i++)
+        {
+            union term_cell cell;
+            cell.value = vm_tv[start + i];
+            if(in_dbcs)
             {
-                union term_cell cell;
-                cell.value = vm[start-1];
-                cell.chr = 0x20;
-                vm[start-1] = cell.value;
-                vram_cell_type[start-1] = VRAM_CELL_SBCS;
-            }
-            for(int i = 0; i < len; i++)
-            {
-                union term_cell cell;
-                cell.value = vm_tv[start + i];
-                if(in_dbcs)
+                if(cell.chr <= 0x20)
                 {
-                    if(cell.chr <= 0x20)
-                    {
-                        union term_cell cell_p;
-                        cell_p.value = vm[start + i - 1];
-                        cell_p.chr = 0x20;
-                        vm[start + i - 1] = cell_p.value;
-                        vram_cell_type[start + i - 1] = VRAM_CELL_SBCS;
-                        vram_cell_type[start + i] = VRAM_CELL_SBCS;
-                    }
-                    else
-                        vram_cell_type[start + i] = VRAM_CELL_DBCS_2ND;
-                    in_dbcs = 0;
-                }
-                else if(check_dbcs_1st(cell.chr))
-                {
-                    vram_cell_type[start + i] = VRAM_CELL_DBCS_1ST;
-                    in_dbcs = 1;
+                    union term_cell cell_p;
+                    cell_p.value = vm[start + i - 1];
+                    cell_p.chr = 0x20;
+                    vm[start + i - 1] = cell_p.value;
+                    vram_cell_type[start + i - 1] = VRAM_CELL_SBCS;
+                    vram_cell_type[start + i] = VRAM_CELL_SBCS;
                 }
                 else
-                    vram_cell_type[start + i] = VRAM_CELL_SBCS;
-                vm[start + i] = cell.value;
+                    vram_cell_type[start + i] = VRAM_CELL_DBCS_2ND;
+                in_dbcs = 0;
             }
-            if(vram_cell_type[start + len] == VRAM_CELL_DBCS_2ND)
+            else if(check_dbcs_1st(cell.chr))
             {
-                union term_cell cell;
-                cell.value = vm[start + len];
-                cell.chr = 0x20;
-                vm[start + len] = cell.value;
-                vram_cell_type[start + len] = VRAM_CELL_SBCS;
+                vram_cell_type[start + i] = VRAM_CELL_DBCS_1ST;
+                in_dbcs = 1;
             }
+            else
+                vram_cell_type[start + i] = VRAM_CELL_SBCS;
+            vm[start + i] = cell.value;
         }
+        if(vram_cell_type[start + len] == VRAM_CELL_DBCS_2ND)
+        {
+            union term_cell cell;
+            cell.value = vm[start + len];
+            cell.chr = 0x20;
+            vm[start + len] = cell.value;
+            vram_cell_type[start + len] = VRAM_CELL_SBCS;
+        }
+    }
         video_putchar_cont = 0;
         break;
-    default:
-        debug(debug_video, "UNHANDLED INT 10, AX=%04x\n", ax);
+    default: debug(debug_video, "UNHANDLED INT 10, AX=%04x\n", ax);
     }
 }
 

@@ -1,10 +1,10 @@
 #define _GNU_SOURCE
 
 #include "dosnames.h"
+#include "codepage.h"
 #include "dbg.h"
 #include "emu.h"
 #include "env.h"
-#include "codepage.h"
 #include <dirent.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -44,7 +44,7 @@ static char dos_valid_char(char c, int *dos_valid_char_in_dbcs)
         return c - 'a' + 'A';
     if(mode == DOSNAME_8BIT || mode == DOSNAME_DBCS)
     {
-        if ((unsigned char)c >= 0xa0 && (unsigned char)c < 0xff)
+        if((unsigned char)c >= 0xa0 && (unsigned char)c < 0xff)
             return c;
     }
     return 0;
@@ -66,24 +66,29 @@ static int unix_to_dos(uint8_t *d, const char *u)
             uint8_t c = *(uint8_t *)u;
             if(c < 128)
                 *dst++ = *u++;
-            else if(c >= 0xf0) {
+            else if(c >= 0xf0)
+            {
                 *dst++ = '~';
-                for (int i=0; i<4 && *u; u++)
+                for(int i = 0; i < 4 && *u; u++)
                     /*NOP*/;
             }
-            else {
+            else
+            {
                 uint16_t unicode = utf8_to_unicode((const uint8_t **)&u);
-                if(unicode) {
+                if(unicode)
+                {
                     int n, c1, c2;
                     n = get_dos_char(unicode, &c1, &c2);
-                    if (n == 1)
+                    if(n == 1)
                         *dst++ = c1;
-                    else if (n == 2) {
+                    else if(n == 2)
+                    {
                         *dst++ = c1;
                         *dst++ = c2;
                     }
                 }
-                else {
+                else
+                {
                     *dst++ = '~';
                     break;
                 }
@@ -266,7 +271,8 @@ static struct dos_file_list *dos_read_dir(const char *path, const char *glob, in
     ret = calloc(n + 2, sizeof(struct dos_file_list));
     if(!ret)
     {
-        for(int i = 0; i < n; free(dir[i]), i++);
+        for(int i = 0; i < n; free(dir[i]), i++)
+            ;
         free(dir);
         return 0;
     }
@@ -412,19 +418,21 @@ static char *dos_unix_name(const char *path, const char *dosN, int force)
     struct stat st;
     const char *bpath = strcmp(path, "/") ? path : "";
     // Allocate a buffer big enough
-    char *ret = malloc(strlen(bpath) + strlen(dosN)*3 + 2);
+    char *ret = malloc(strlen(bpath) + strlen(dosN) * 3 + 2);
     if(!ret)
         return 0;
-    if(-1 == sprintf(ret, "%s/", bpath)) {
+    if(-1 == sprintf(ret, "%s/", bpath))
+    {
         free(ret);
         return 0;
     }
     {
         const uint8_t *src = (const uint8_t *)dosN;
         uint8_t *dst = (uint8_t *)(ret + strlen(ret));
-        while (*src) {
+        while(*src)
+        {
             int uc = get_unicode(*src++, NULL);
-            if (uc == 0)
+            if(uc == 0)
                 /*NOP*/;
             else
                 unicode_to_utf8(&dst, uc);
@@ -592,9 +600,9 @@ int dos_path_normalize(char *path, unsigned max)
             int in_dbcs = 0;
             while(path[end])
             {
-                if (in_dbcs)
+                if(in_dbcs)
                     in_dbcs = 0;
-                else if (check_dbcs_1st(path[end]))
+                else if(check_dbcs_1st(path[end]))
                     in_dbcs = 1;
                 else if(!char_valid(path[end]))
                     break;
@@ -604,7 +612,7 @@ int dos_path_normalize(char *path, unsigned max)
         else
             while(char_valid(path[end]))
                 end++;
-            
+
         if(path[end] && !char_pathsep(path[end]))
             path[end] = 0;
         if(!path[end] && end < max)
@@ -621,7 +629,8 @@ int dos_path_normalize(char *path, unsigned max)
                 int e2 = 0;
                 int in_dbcs = 0;
                 int prev_pathsep = 0;
-                while(base[e1]) {
+                while(base[e1])
+                {
                     if(in_dbcs)
                     {
                         in_dbcs = 0;
@@ -634,7 +643,7 @@ int dos_path_normalize(char *path, unsigned max)
                     }
                     else if(char_pathsep(base[e1]))
                     {
-                        if (!prev_pathsep)
+                        if(!prev_pathsep)
                             e2 = e1;
                         prev_pathsep = 1;
                     }
@@ -699,7 +708,7 @@ void make_fcbname(char *dos_shortname, const char *path)
             s = p + 1;
         p++;
     }
-    
+
     if(s == 0)
     {
         memset(dos_shortname, ' ', 11);
@@ -710,11 +719,12 @@ void make_fcbname(char *dos_shortname, const char *path)
     int pos;
     for(pos = 0; path[s] && pos < 8; pos++)
     {
-        if (path[s] == '.')
-            while (pos < 8)
+        if(path[s] == '.')
+            while(pos < 8)
                 dos_shortname[pos++] = ' ';
         else
-            dos_shortname[pos] = dos_valid_char(path[s], &in_dbcs);;
+            dos_shortname[pos] = dos_valid_char(path[s], &in_dbcs);
+        ;
         s++;
     }
     in_dbcs = 0;
@@ -817,8 +827,8 @@ char *dos_unix_path(int addr, int force, const char *append)
     if(*path && (!strcasecmp(path, "CON") || !strcasecmp(path + 1, ":CON")))
         return strdup("/dev/tty");
 #ifdef EMS_SUPPORT
-    if(use_ems && *path && (!strcasecmp(path, "EMMXXXX0") ||
-                 !strcasecmp(path + 1, ":EMMXXXX0")))
+    if(use_ems && *path &&
+       (!strcasecmp(path, "EMMXXXX0") || !strcasecmp(path + 1, ":EMMXXXX0")))
         return strdup("/dev/null");
 #endif
     // Try to convert
@@ -911,22 +921,26 @@ static struct dos_file_list *find_first_file(char *fspec, int label, int dirs)
     }
     if(mode == DOSNAME_DBCS || mode == DOSNAME_8BIT)
     {
-        buffer = malloc(strlen(glob)*3 + 1);
+        buffer = malloc(strlen(glob) * 3 + 1);
         const uint8_t *src = (const uint8_t *)glob;
         uint8_t *dst = (uint8_t *)buffer;
-        while(*src) {
+        while(*src)
+        {
             int unicode = utf8_to_unicode(&src);
-            if(unicode) {
+            if(unicode)
+            {
                 int n, c1, c2;
                 n = get_dos_char(unicode, &c1, &c2);
-                if (n == 1)
+                if(n == 1)
                     *dst++ = c1;
-                else if (n == 2) {
+                else if(n == 2)
+                {
                     *dst++ = c1;
                     *dst++ = c2;
                 }
             }
-            else {
+            else
+            {
                 *dst++ = '*';
             }
         }
@@ -1031,8 +1045,8 @@ char *dos_real_path(const char *unix_path)
         if(!sl)
         {
             dos_free_file_list(fl);
-            debug(debug_dos, "dos_real_path: path not found: '%s' in '%s'\n",
-                    path + l, path);
+            debug(debug_dos, "dos_real_path: path not found: '%s' in '%s'\n", path + l,
+                  path);
             free(base);
             free(path);
             free(ret);

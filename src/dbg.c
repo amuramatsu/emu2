@@ -1,7 +1,7 @@
 #include "dbg.h"
 #include "env.h"
-#include "version.h"
 #include "os.h"
+#include "version.h"
 
 #include <fcntl.h>
 #include <stdarg.h>
@@ -63,7 +63,8 @@ NORETURN void print_usage(void)
            "  %-18s  Filename mode (7bit, 8bit or DBCS).\n"
            "  %-18s  Exec child process in same emulator process.\n",
            prog_name, ENV_DBG_NAME, ENV_DBG_OPT, ENV_PROGNAME, ENV_DEF_DRIVE, ENV_CWD,
-           ENV_DRIVE "n", ENV_CODEPAGE, ENV_LOWMEM, ENV_MEMFLAG, ENV_LOWMEM, ENV_APPEND, ENV_DOSVER, ENV_ROWS, ENV_MEMSIZE,
+           ENV_DRIVE "n", ENV_CODEPAGE, ENV_LOWMEM, ENV_MEMFLAG, ENV_LOWMEM, ENV_APPEND,
+           ENV_DOSVER, ENV_ROWS, ENV_MEMSIZE,
 #ifdef EMS_SUPPORT
            ENV_EMSMEM,
 #endif

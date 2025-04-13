@@ -7,7 +7,8 @@
 #include <stdint.h>
 
 // Set dosnames mode
-enum DOSNAME_MODE {
+enum DOSNAME_MODE
+{
     DOSNAME_7BIT,
     DOSNAME_8BIT,
     DOSNAME_DBCS

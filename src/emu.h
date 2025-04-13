@@ -27,7 +27,7 @@ void execute(void); // 1 ins.
 void init_cpu(void);
 void cpu_reset(void);
 
-//Helper functions
+// Helper functions
 uint32_t get_static_memory(uint16_t bytes, uint16_t align);
 int reg_farcall_entry(uint32_t ret_addr, void (*func)(void));
 
@@ -125,30 +125,30 @@ void cpuClrStartupFlag(enum cpuFlags flag);
 
 // Read 8 bit number
 void meml_write8(uint32_t address, uint8_t value);
-#define put8(addr, v)   meml_write8(addr, v)
+#define put8(addr, v) meml_write8(addr, v)
 
 // Read 16 bit number
 void meml_write16(uint32_t address, uint16_t value);
-#define put16(addr, v)  meml_write16(addr, v)
+#define put16(addr, v) meml_write16(addr, v)
 
 // Read 32 bit number
 void meml_write32(uint32_t address, uint32_t value);
-#define put32(addr, v)  meml_write32(addr, v)
+#define put32(addr, v) meml_write32(addr, v)
 
 // Read 32 bit number
 void meml_writes(uint32_t address, const void *dat, unsigned int leng);
 
 // Write 8 bit number
 uint8_t meml_read8(uint32_t address);
-#define get8(addr)      meml_read8(addr)
+#define get8(addr) meml_read8(addr)
 
 // Write 16 bit number
 uint16_t meml_read16(uint32_t address);
-#define get16(addr)      meml_read16(addr)
+#define get16(addr) meml_read16(addr)
 
 // Write 32 bit number
 uint32_t meml_read32(uint32_t address);
-#define get32(addr)      meml_read32(addr)
+#define get32(addr) meml_read32(addr)
 
 // Write mem block
 void meml_reads(uint32_t address, void *dat, unsigned int leng);
@@ -159,9 +159,10 @@ void meml_reads(uint32_t address, void *dat, unsigned int leng);
 static inline void put8(int addr, int v)
 {
 #ifdef EMS_SUPPORT
-    if (in_ems_pageframe(addr)) {
-	ems_put8(addr, v);
-	return;
+    if(in_ems_pageframe(addr))
+    {
+        ems_put8(addr, v);
+        return;
     }
 #endif
     memory[memory_mask & (addr)] = v;
@@ -185,8 +186,9 @@ static inline void put32(int addr, unsigned v)
 static inline int get8(int addr)
 {
 #ifdef EMS_SUPPORT
-    if (in_ems_pageframe(addr)) {
-	return ems_get8(addr);
+    if(in_ems_pageframe(addr))
+    {
+        return ems_get8(addr);
     }
 #endif
     return memory[memory_mask & addr];
@@ -206,7 +208,7 @@ static inline unsigned get32(int addr)
 
 #endif // IA32
 
-#define check_limit(s, d) \
+#define check_limit(s, d)                                                                \
     ((s) >= memory_limit || (d) >= memory_limit || (s) + (d) >= memory_limit)
 
 // Push word to stack
@@ -230,11 +232,12 @@ static inline int putmem(uint32_t dest, const uint8_t *src, unsigned size)
     if(check_limit(size, dest))
         return 1;
 #ifdef EMS_SUPPORT
-    if (in_ems_pageframe(dest)) {
-	unsigned i;
-	for (i = 0; i < size; i++)
-	    ems_put8(dest++, *src++);
-	return 0;
+    if(in_ems_pageframe(dest))
+    {
+        unsigned i;
+        for(i = 0; i < size; i++)
+            ems_put8(dest++, *src++);
+        return 0;
     }
 #endif
 #ifdef IA32
@@ -252,8 +255,8 @@ static inline uint8_t *getptr(uint32_t addr, unsigned size)
     if(check_limit(size, addr))
         return 0;
 #ifdef EMS_SUPPORT
-    if (in_ems_pageframe(addr))
-	return 0;
+    if(in_ems_pageframe(addr))
+        return 0;
 #endif
     return memory + addr;
 }
@@ -269,16 +272,18 @@ static inline char *getstr(uint32_t addr, unsigned size)
     cbuf = (cbuf + 1) & 3;
     memset(buf[cbuf], 0, 256);
 #ifdef EMS_SUPPORT
-    if (size < 255 && in_ems_pageframe(addr)) {
-	int i;
-	char *p = buf[cbuf];
-	for (i = 0; i < size; i++) {
-	    *p++ = ems_get8(addr++);
-	}
+    if(size < 255 && in_ems_pageframe(addr))
+    {
+        int i;
+        char *p = buf[cbuf];
+        for(i = 0; i < size; i++)
+        {
+            *p++ = ems_get8(addr++);
+        }
     }
     else
 #endif
-    if(size < 255 && !check_limit(addr, size))
+        if(size < 255 && !check_limit(addr, size))
     {
 #ifdef IA32
         meml_reads(addr, buf[cbuf], size);
