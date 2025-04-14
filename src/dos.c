@@ -2201,7 +2201,15 @@ int intr21(void)
         cpuSetDX(0xFFFF); // total 1GB
         break;
     case 0x37: // get/set switch character
-        cpuSetDX('/');
+        if((ax & 0xff) == 0x00)
+        {
+            cpuSetDX((cpuGetDX() & 0xFF00) | '/');
+            cpuSetAX((ax & 0xFF00));
+        }
+        else
+        {
+            cpuSetAX((ax & 0xFF00) | 0xFF);
+        }
         break;
     case 0x38: // GET COUNTRY INFO
     {
