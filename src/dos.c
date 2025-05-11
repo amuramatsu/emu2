@@ -2617,7 +2617,10 @@ int intr21(void)
         // Note: ignore drive letter in DL
         const uint8_t *path = dos_get_cwd(cpuGetDX() & 0xFF);
         debug(debug_dos, "\tcwd '%c' = '%s'\n", '@' + (int)(cpuGetDX() & 0xFF), path);
-        putmem(cpuGetAddrDS(cpuGetSI()), path, 64);
+        uint32_t addr = cpuGetAddrDS(cpuGetSI());
+        for(int i = 0; i < 63 && *path; i++)
+            put8(addr++, *path++);
+        put8(addr, 0);
         cpuSetAX(0x0100);
         dos_error = 0;
         cpuClrFlag(cpuFlag_CF);
