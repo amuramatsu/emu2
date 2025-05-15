@@ -88,6 +88,7 @@ struct exec_PSP
     int parent_bp;
     int parent_ds;
     int parent_es;
+    int video_mode;
 };
 struct exec_PSP *exec_psp_root = NULL;
 
@@ -2860,8 +2861,10 @@ int intr21(void)
                 ep->parent_bp = saveBP;
                 ep->parent_ds = saveDS;
                 ep->parent_es = saveES;
+                ep->video_mode = video_active();
                 exec_psp_root = ep;
 
+                video_mode_set(0); // video emulation is closed
                 restore_handles();
             }
             else // Load only
@@ -2966,6 +2969,7 @@ int intr21(void)
                 cpuSetBP(ep->parent_bp);
                 cpuSetDS(ep->parent_ds);
                 cpuSetES(ep->parent_es);
+                video_mode_set(ep->video_mode);
                 free(ep);
             }
             set_current_PSP(parent_psp);

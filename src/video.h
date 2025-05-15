@@ -7,6 +7,8 @@ void intr10(void);
 void check_screen(void);
 // Returns 1 if video emulation is active.
 int video_active(void);
+// set video emulation activated or not
+void video_mode_set(int activate);
 // Writes a character to the video screen
 void video_putch(char ch);
 // Get current column in current page

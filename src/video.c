@@ -49,6 +49,7 @@ static volatile int term_needs_update;
 static FILE *tty_file;
 // Video is already initialized
 static int video_initialized;
+static int exit_video_registered;
 // Actual cursor position in the CRTC register
 static uint16_t crtc_cursor_loc;
 // Using TopView I/F
@@ -222,6 +223,8 @@ static unsigned get_last_used_row(void)
 
 static void exit_video(void)
 {
+    if(!video_initialized)
+        return;
     vid_cursor = 1;
     check_screen();
     unsigned max = get_last_used_row();
@@ -229,6 +232,7 @@ static void exit_video(void)
     fputs("\x1b[?7h", tty_file); // Re-enable margin
     fputs("\x1b[m", tty_file);
     fclose(tty_file);
+    video_initialized = 0;
     debug(debug_video, "exit video - row %u\n", max);
 }
 
@@ -242,7 +246,9 @@ static void init_video(void)
     if(!tty_file)
         print_error("error at open TTY, %s\n", strerror(errno));
     fputs("\x1b[?7l", tty_file); // Disable automatic margin
-    atexit(exit_video);
+    if(!exit_video_registered)
+        atexit(exit_video);
+    exit_video_registered = 1;
     video_initialized = 1;
 
     clear_terminal();
@@ -254,6 +260,14 @@ static void init_video(void)
 int video_active(void)
 {
     return video_initialized;
+}
+
+void video_mode_set(int activate)
+{
+    if(activate && !video_initialized)
+        init_video();
+    else if(video_initialized)
+        exit_video();
 }
 
 static void set_color(uint8_t c)
