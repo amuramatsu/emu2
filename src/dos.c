@@ -313,9 +313,9 @@ static void copy_jft(unsigned psp, uint32_t orig, int len)
     }
 }
 
-static void create_dir(void)
+static void create_dir(int lfn)
 {
-    char *fname = dos_unix_path(cpuGetAddrDS(cpuGetDX()), 1, 0);
+    char *fname = dos_unix_path(cpuGetAddrDS(cpuGetDX()), 1, 0, lfn);
     debug(debug_dos, "\tmkdir '%s' ", fname);
     if(0 != mkdir(fname, 0777))
     {
@@ -341,9 +341,9 @@ static void create_dir(void)
     cpuClrFlag(cpuFlag_CF);
 }
 
-static void remove_dir(void)
+static void remove_dir(int lfn)
 {
-    char *fname = dos_unix_path(cpuGetAddrDS(cpuGetDX()), 1, 0);
+    char *fname = dos_unix_path(cpuGetAddrDS(cpuGetDX()), 1, 0, lfn);
     debug(debug_dos, "\trmdir '%s' ", fname);
     if(0 != rmdir(fname))
     {
@@ -367,7 +367,7 @@ static void remove_dir(void)
     cpuClrFlag(cpuFlag_CF);
 }
 
-static int dos_open_file(int create, int access_mode, int name_addr)
+static int dos_open_file(int create, int access_mode, int name_addr, int lfn)
 {
     int h, sidx;
     get_new_handle(&h, &sidx);
@@ -378,7 +378,7 @@ static int dos_open_file(int create, int access_mode, int name_addr)
         cpuSetFlag(cpuFlag_CF);
         return 0;
     }
-    char *fname = dos_unix_path(name_addr, create, append_path());
+    char *fname = dos_unix_path(name_addr, create, append_path(), lfn);
     if(!get8(name_addr) || !fname)
     {
         dispose_handle(h, sidx);
@@ -836,14 +836,14 @@ static void update_dos_sft(int sidx, const struct stat *st)
 }
 
 // DOS int 21, ah=43
-static void intr21_43(void)
+static void intr21_43(int lfn)
 {
     unsigned al = cpuGetAX() & 0xFF;
     int dname = cpuGetAddrDS(cpuGetDX());
     if(al == 0 || al == 1)
     {
         // Get path
-        char *fname = dos_unix_path(dname, 0, append_path());
+        char *fname = dos_unix_path(dname, 0, append_path(), lfn);
         if(!fname)
         {
             debug(debug_dos, "\t(file not found)\n");
@@ -1025,7 +1025,8 @@ static void dos_find_first(void)
     // Check if we want the volume label
     int do_label = (cpuGetCX() & 8) != 0;
     int do_dirs = (cpuGetCX() & 16) != 0;
-    p->find_first_list = dos_find_first_file(cpuGetAddrDS(cpuGetDX()), do_label, do_dirs);
+    p->find_first_list =
+        dos_find_first_file(cpuGetAddrDS(cpuGetDX()), do_label, do_dirs, 0);
 
     p->find_first_ptr = p->find_first_list;
     dos_find_next(1);
@@ -1441,6 +1442,390 @@ static void mcb_debug(void)
 }
 #endif /* DEBUG_MCB */
 
+#ifdef LFN_SUPPORT
+struct find_first_lfn
+{
+    // List of files to return and pointer to current.
+    struct dos_file_list *find_first_list;
+    struct dos_file_list *find_first_ptr;
+    uint16_t handle;
+    struct find_first_lfn *next;
+};
+static struct find_first_lfn *find_first_lfn_root;
+
+static uint64_t get_lfs_time_date(time_t t)
+{
+    return ((uint64_t)t + 11644473600) * 10 * 1000 * 1000;
+}
+
+static struct find_first_lfn *search_lfn_find_handle(uint16_t handle)
+{
+    for(struct find_first_lfn *p = find_first_lfn_root; p; p = p->next)
+        if(p->handle == handle)
+            return p;
+    return NULL;
+}
+
+static int free_lfn_find_handle(struct find_first_lfn *ffl)
+{
+    struct find_first_lfn **p = &find_first_lfn_root;
+    if(!ffl)
+        return 1;
+    while(*p)
+    {
+        if(*p == ffl)
+        {
+            *p = (*p)->next;
+            dos_free_file_list(ffl->find_first_list);
+            free(ffl);
+            return 0;
+        }
+        p = &((*p)->next);
+    }
+    return 1;
+}
+
+static void lfn_find_next(int first, struct find_first_lfn *ffl)
+{
+    if(!ffl)
+    {
+        debug(debug_dos, "\t<invalid handle>\n");
+        cpuSetFlag(cpuFlag_CF);
+        dos_error = 0x06;
+        cpuSetAX(dos_error);
+        return;
+    }
+    struct dos_file_list *d = ffl->find_first_ptr;
+    uint32_t addr = cpuGetAddrES(cpuGetDI());
+    if(!d || !ffl->find_first_ptr->unixname)
+    {
+        debug(debug_dos, "\t(end)\n");
+        cpuSetFlag(cpuFlag_CF);
+        dos_error = first ? 0x02 : 0x12;
+        cpuSetAX(dos_error);
+        free_lfn_find_handle(ffl);
+    }
+    else
+    {
+        debug(debug_dos, "\t'%s / %s' ('%s')\n", d->lfnname, d->dosname, d->unixname);
+
+        // Fills the Find First Data from a dos/unix name pair
+        if(strcmp("//", d->unixname))
+        {
+            // Normal file/directory
+            struct stat st;
+            if(0 == stat(d->unixname, &st))
+            {
+                uint64_t ctime;
+                uint64_t atime;
+                uint64_t mtime;
+                if(cpuGetSI() == 0x0000)
+                {
+                    ctime = get_lfs_time_date(st.st_ctime);
+                    atime = get_lfs_time_date(st.st_atime);
+                    mtime = get_lfs_time_date(st.st_mtime);
+                }
+                else
+                {
+                    ctime = get_time_date(st.st_ctime);
+                    atime = get_time_date(st.st_atime);
+                    mtime = get_time_date(st.st_mtime);
+                }
+                put32(addr + 0x00, get_attributes(st.st_mode));
+                put32(addr + 0x04, ctime & 0xFFFFFFFF);
+                put32(addr + 0x08, (ctime >> 32) & 0xFFFFFFFF);
+                put32(addr + 0x0C, atime & 0xFFFFFFFF);
+                put32(addr + 0x10, (atime >> 32) & 0xFFFFFFFF);
+                put32(addr + 0x14, mtime & 0xFFFFFFFF);
+                put32(addr + 0x18, (mtime >> 32) & 0xFFFFFFFF);
+                put32(addr + 0x1C, (st.st_size >> 32) & 0xFFFFFFFF);
+                put32(addr + 0x20, st.st_size & 0xFFFFFFFF);
+            }
+            else
+            {
+                put32(addr + 0x00, 0);
+                put32(addr + 0x04, 0);
+                put32(addr + 0x08, 0);
+                put32(addr + 0x0C, 0);
+                put32(addr + 0x10, 0);
+                put32(addr + 0x14, 0);
+                put32(addr + 0x18, 0);
+                put32(addr + 0x1C, 0);
+                put32(addr + 0x20, 0);
+            }
+        }
+        else
+        {
+            // Fills volume label data
+            put32(addr + 0x00, 8);
+            put32(addr + 0x04, 0);
+            put32(addr + 0x08, 0);
+            put32(addr + 0x0C, 0);
+            put32(addr + 0x10, 0);
+            put32(addr + 0x14, 0);
+            put32(addr + 0x18, 0);
+            put32(addr + 0x1C, 0);
+            put32(addr + 0x20, 0);
+        }
+        // Fills dos file name
+        int i;
+        for(i = 0; i < 260 && d->lfnname[i]; i++)
+            put8(addr + 0x2C + i, d->lfnname[i]);
+        put8(addr + 0x2C + i, 0);
+        putmem(addr + 0x130, d->dosname, 13);
+        // Next file
+        ffl->find_first_ptr++;
+        cpuClrFlag(cpuFlag_CF);
+        // Some DOS programs require returning AX=0 on success.
+        dos_error = 0;
+        cpuSetCX(0);
+        if(first)
+            cpuSetAX(ffl->handle);
+        else
+            cpuSetAX(0x4F00);
+    }
+}
+
+static void lfn_find_first(void)
+{
+    // Make find handle
+    uint16_t handle = 1;
+    struct find_first_lfn **p = &find_first_lfn_root;
+    while(*p)
+    {
+        if((*p)->handle >= handle)
+            handle = (*p)->handle + 1;
+        p = &((*p)->next);
+    }
+    *p = (struct find_first_lfn *)calloc(1, sizeof(struct find_first_lfn));
+    if(!*p)
+        abort();
+    (*p)->handle = handle;
+
+    // Check if we want the volume label
+    int do_label = (cpuGetCX() & 8) != 0;
+    int do_dirs = (cpuGetCX() & 16) != 0;
+    (*p)->find_first_list =
+        dos_find_first_file(cpuGetAddrDS(cpuGetDX()), do_label, do_dirs, 1);
+    (*p)->find_first_ptr = (*p)->find_first_list;
+    lfn_find_next(1, *p);
+}
+
+static void intr21_lfn(int ax)
+{
+    switch(ax)
+    {
+    case 0x710d: // Reset Drive
+        // NOP
+        cpuClrFlag(cpuFlag_CF);
+        break;
+    case 0x7139: // MKDIR
+        create_dir(1);
+        break;
+    case 0x713A: // RMDIR
+        remove_dir(1);
+        break;
+    case 0x713B: // CHDIR
+    {
+        if(dos_change_dir(cpuGetAddrDS(cpuGetDX()), 1))
+        {
+            dos_error = 3;
+            cpuSetAX(3);
+            cpuSetFlag(cpuFlag_CF);
+        }
+        else
+        {
+            dos_error = 0;
+            cpuClrFlag(cpuFlag_CF);
+        }
+        break;
+    }
+    case 0x7141: // Delete
+    {
+        char *fname = dos_unix_path(cpuGetAddrDS(cpuGetDX()), 0, append_path(), 1);
+        if(!fname)
+        {
+            debug(debug_dos, "\t(file not found)\n");
+            cpuSetFlag(cpuFlag_CF);
+            dos_error = 2;
+            cpuSetAX(dos_error);
+            break;
+        }
+        debug(debug_dos, "\tunlink '%s'\n", fname);
+        int e = unlink(fname);
+        free(fname);
+        if(e)
+        {
+            if(errno == ENOTDIR)
+                dos_error = 3;
+            else if(errno == ENOENT)
+                dos_error = 2;
+            else
+                dos_error = 5;
+            cpuSetAX(dos_error);
+            cpuSetFlag(cpuFlag_CF);
+        }
+        else
+        {
+            dos_error = 0;
+            cpuClrFlag(cpuFlag_CF);
+        }
+        break;
+    }
+    case 0x7143: // Get/Set attributes
+        intr21_43(1);
+        break;
+    case 0x7147: // Get CWD
+    {
+        // Note: ignore drive letter in DL
+        const uint8_t *path = lfn_get_cwd(cpuGetDX() & 0xFF);
+        debug(debug_dos, "\tcwd '%c' = '%s'\n", '@' + (int)(cpuGetDX() & 0xFF), path);
+        uint32_t addr = cpuGetAddrDS(cpuGetSI());
+        int i;
+        for(i = 0; i < 260 && path[i]; i++)
+            put8(addr + i, path[i]);
+        put8(addr + i, 0);
+        cpuSetAX(0x0100);
+        dos_error = 0;
+        cpuClrFlag(cpuFlag_CF);
+        break;
+    }
+    case 0x714E: // FindFirst
+        lfn_find_first();
+        break;
+    case 0x714F: // FindNext
+        lfn_find_next(0, search_lfn_find_handle(cpuGetBX()));
+        break;
+    case 0x7156: // Rename
+    {
+        char *fname1 = dos_unix_path(cpuGetAddrDS(cpuGetDX()), 0, 0, 1);
+        if(!fname1)
+        {
+            debug(debug_dos, "\t(file not found)\n");
+            dos_error = 2;
+            cpuSetAX(dos_error);
+            cpuSetFlag(cpuFlag_CF);
+            break;
+        }
+        char *fname2 = dos_unix_path(cpuGetAddrES(cpuGetDI()), 1, 0, 1);
+        if(!fname2)
+        {
+            free(fname1);
+            debug(debug_dos, "\t(destination not found)\n");
+            dos_error = 3;
+            cpuSetAX(dos_error);
+            cpuSetFlag(cpuFlag_CF);
+            break;
+        }
+        debug(debug_dos, "\t'%s' -> '%s'\n", fname1, fname2);
+        int e = rename(fname1, fname2);
+        free(fname2);
+        free(fname1);
+        if(e)
+        {
+            cpuSetFlag(cpuFlag_CF);
+            if(errno == ENOTDIR)
+                dos_error = 3;
+            else if(errno == ENOENT)
+                dos_error = 2;
+            else
+                dos_error = 5;
+            cpuSetAX(dos_error);
+        }
+        else
+        {
+            dos_error = 0;
+            cpuClrFlag(cpuFlag_CF);
+        }
+        break;
+    }
+    case 0x7160: // Truename
+        switch(cpuGetCX() & 0xff)
+        {
+        case 0x0: // Truename
+            break;
+        case 0x1: // get short name
+            break;
+        case 0x2: // canocical long filename or path
+            break;
+        default:
+            cpuSetAX(0x7100);
+            cpuSetFlag(cpuFlag_CF);
+            break;
+        }
+        break;
+    case 0x716c: // Create or Open
+    {
+        unsigned cmod = cpuGetDX() & 0xFF;
+        //  cmod    action
+        //   00     fail always                                         -
+        //   01     open if exists already, fail if not                 0
+        //   02     clear and open if exists, fail if not               -
+        //   10     create if not exists, fail if not.                  2
+        //   11     create if not exists, open if exists                -
+        //   12     create if not exists, clear and open if exists.     1
+        int create = -1;
+        if(cmod == 0x01)
+            create = 0;
+        else if(cmod == 0x10)
+            create = 2;
+        else if(cmod == 0x12)
+            create = 1;
+        else
+        {
+            // TODO: unsupported open mode
+            debug(debug_dos, "\tUnsupported open mode: %02x\n", cmod);
+            dos_error = 1;
+            cpuSetAX(dos_error);
+            cpuSetFlag(cpuFlag_CF);
+            break;
+        }
+        int e = dos_open_file(create, cpuGetBX() & 0xFF, cpuGetAddrDS(cpuGetSI()), 1);
+        if(e)
+            cpuSetCX(e);
+        break;
+    }
+    case 0x71a0: // Get Volume info
+        // uint32_t addr = cpuGetAddrES(cpuGetDI());
+        cpuSetAX(0x0000);
+        // Support LFN, use Unicode, preserve case and search case sensitive
+        cpuSetBX(0x4007);
+        cpuSetCX(255);
+        cpuSetDX(260);
+        // addr = "EMU2";
+        dos_error = 0;
+        cpuClrFlag(cpuFlag_CF);
+        break;
+    case 0x71a1: // FindClose
+        if(free_lfn_find_handle(search_lfn_find_handle(cpuGetBX())))
+        {
+            dos_error = 6;
+            cpuSetAX(dos_error); // invalid handle
+            cpuSetFlag(cpuFlag_CF);
+        }
+        else
+        {
+            dos_error = 0;
+            cpuClrFlag(cpuFlag_CF);
+        }
+        break;
+    case 0x71a6: // fstat
+        break;
+    case 0x71a7: // FileTime <-> DosTime
+        break;
+    case 0x71a8: // Gen Short Filename
+        break;
+    default:
+        debug(debug_dos, "UNHANDLED INT 21 (LFN), AX=%04x\n", cpuGetAX());
+        debug(debug_int, "UNHANDLED INT 21 (LFN), AX=%04x\n", cpuGetAX());
+        dos_error = 1;
+        cpuSetFlag(cpuFlag_CF);
+        cpuSetAX(0x7100);
+        break;
+    }
+}
+#endif // LFN_SUPPORT
+
 static void intr21_debug(void)
 {
     static const char *func_names[] = {
@@ -1549,6 +1934,15 @@ static void intr21_debug(void)
         "(g/set global codepage table)", // 66
         "set handle count",              // 67
         "fflush",                        // 68
+        "(g/set disk serial number)",    // 69
+        "(commit file)",                 // 6a
+        "(IFS ioctl)",                   // 6b
+        "(extd open/create)",            // 6c
+        "(find first rom)",              // 6d
+        "(find next rom)",               // 6e
+        "(g/set rom scan start addr)",   // 6f
+        "(g/set int'l information)",     // 70
+        "LFN fn",                        // 71
     };
     const char *fn;
     static int count = 0;
@@ -2225,14 +2619,14 @@ int intr21(void)
         break;
     }
     case 0x39: // MKDIR
-        create_dir();
+        create_dir(0);
         break;
     case 0x3A: // RMDIR
-        remove_dir();
+        remove_dir(0);
         break;
     case 0x3B: // CHDIR
     {
-        if(dos_change_dir(cpuGetAddrDS(cpuGetDX())))
+        if(dos_change_dir(cpuGetAddrDS(cpuGetDX()), 0))
         {
             dos_error = 3;
             cpuSetAX(3);
@@ -2246,10 +2640,10 @@ int intr21(void)
         break;
     }
     case 0x3C: // CREATE FILE
-        dos_open_file(1, cpuGetAX() & 0xFF, cpuGetAddrDS(cpuGetDX()));
+        dos_open_file(1, cpuGetAX() & 0xFF, cpuGetAddrDS(cpuGetDX()), 0);
         break;
     case 0x3D: // OPEN EXISTING FILE
-        dos_open_file(0, cpuGetAX() & 0xFF, cpuGetAddrDS(cpuGetDX()));
+        dos_open_file(0, cpuGetAX() & 0xFF, cpuGetAddrDS(cpuGetDX()), 0);
         break;
     case 0x3E: // CLOSE FILE
         dos_close_file(cpuGetBX());
@@ -2426,7 +2820,7 @@ int intr21(void)
     }
     case 0x41: // UNLINK
     {
-        char *fname = dos_unix_path(cpuGetAddrDS(cpuGetDX()), 0, append_path());
+        char *fname = dos_unix_path(cpuGetAddrDS(cpuGetDX()), 0, append_path(), 0);
         if(!fname)
         {
             debug(debug_dos, "\t(file not found)\n");
@@ -2495,7 +2889,7 @@ int intr21(void)
         break;
     }
     case 0x43: // DOS 2+ file attributes
-        intr21_43();
+        intr21_43(0);
         break;
     case 0x44:
     {
@@ -2675,7 +3069,7 @@ int intr21(void)
     }
     case 0x4B: // EXEC
     {
-        char *fname = dos_unix_path(cpuGetAddrDS(cpuGetDX()), 0, 0);
+        char *fname = dos_unix_path(cpuGetAddrDS(cpuGetDX()), 0, 0, 0);
         if(!fname)
         {
             debug(debug_dos, "\texec error, file not found\n");
@@ -3038,7 +3432,7 @@ int intr21(void)
     }
     case 0x56: // RENAME
     {
-        char *fname1 = dos_unix_path(cpuGetAddrDS(cpuGetDX()), 0, 0);
+        char *fname1 = dos_unix_path(cpuGetAddrDS(cpuGetDX()), 0, 0, 0);
         if(!fname1)
         {
             debug(debug_dos, "\t(file not found)\n");
@@ -3047,7 +3441,7 @@ int intr21(void)
             cpuSetFlag(cpuFlag_CF);
             break;
         }
-        char *fname2 = dos_unix_path(cpuGetAddrES(cpuGetDI()), 1, 0);
+        char *fname2 = dos_unix_path(cpuGetAddrES(cpuGetDI()), 1, 0, 0);
         if(!fname2)
         {
             free(fname1);
@@ -3101,7 +3495,7 @@ int intr21(void)
         cpuSetAX(dos_error);
         break;
     case 0x5B: // CREATE NEW FILE
-        dos_open_file(2, cpuGetAX() & 0xFF, cpuGetAddrDS(cpuGetDX()));
+        dos_open_file(2, cpuGetAX() & 0xFF, cpuGetAddrDS(cpuGetDX()), 0);
         break;
     case 0x5D: // DOS informations
         if(cpuGetAX() == 0x5D06)
@@ -3325,11 +3719,14 @@ int intr21(void)
             cpuSetFlag(cpuFlag_CF);
             break;
         }
-        int e = dos_open_file(create, cpuGetBX() & 0xFF, cpuGetAddrDS(cpuGetSI()));
+        int e = dos_open_file(create, cpuGetBX() & 0xFF, cpuGetAddrDS(cpuGetSI()), 1);
         if(e)
             cpuSetCX(e);
         break;
     }
+#ifdef LFN_SUPPORT
+    case 0x71: intr21_lfn(ax); break;
+#endif
     default:
         debug(debug_dos, "UNHANDLED INT 21, AX=%04x\n", cpuGetAX());
         debug(debug_int, "UNHANDLED INT 21, AX=%04x\n", cpuGetAX());
@@ -3559,7 +3956,7 @@ void init_dos(int argc, char **argv)
         if(*end == '.' && end[1])
             minor = strtol(end + 1, &end, 10);
 
-        if(*end || major < 1 || major > 6 || minor < 0 || minor > 99)
+        if(*end || major < 1 || major > 10 || minor < 0 || minor > 99)
             print_error("invalid DOS version '%s'\n", ver);
         dosver = (minor << 8) | major;
         debug(debug_dos, "set dos version to '%s' = 0x%04x\n", ver, dosver);
@@ -3686,15 +4083,15 @@ void init_dos(int argc, char **argv)
         char path[64];
         memset(path, 0, 64);
         strncpy(path, getenv(ENV_CWD), 63);
-        dos_change_cwd(path);
+        dos_change_cwd(path, 0);
     }
     else
     {
         // No CWD given, translate from base path of default drive
-        char *cwd = dos_real_path(".");
+        char *cwd = dos_real_path(".", 0);
         if(cwd)
         {
-            dos_change_cwd(cwd);
+            dos_change_cwd(cwd, 0);
             free(cwd);
         }
         else
@@ -3779,7 +4176,7 @@ void init_dos(int argc, char **argv)
     char *buf = 0;
     if(!progname)
     {
-        buf = dos_real_path(argv[0]);
+        buf = dos_real_path(argv[0], 0);
         if(!buf)
             progname = argv[0];
         else

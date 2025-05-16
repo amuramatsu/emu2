@@ -11,6 +11,12 @@
 #include <string.h>
 #include <sys/stat.h>
 
+enum lfn_constants
+{
+    lfn_pathmax = 260,
+    lfn_filemax = 255,
+};
+
 static enum DOSNAME_MODE mode;
 void dosname_mode(enum DOSNAME_MODE m)
 {
@@ -20,7 +26,7 @@ void dosname_mode(enum DOSNAME_MODE m)
 // DOS directory entries.
 // Functions to open/search files.
 
-static char dos_valid_char(char c, int *dos_valid_char_in_dbcs)
+static char dos_valid_char(char c, int *dos_valid_char_in_dbcs, int lfn)
 {
     if(mode == DOSNAME_DBCS && *dos_valid_char_in_dbcs)
     {
@@ -40,6 +46,8 @@ static char dos_valid_char(char c, int *dos_valid_char_in_dbcs)
         *dos_valid_char_in_dbcs = 1;
         return c;
     }
+    if(lfn && c >= 'a' && c <= 'z')
+        return c;
     if(c >= 'a' && c <= 'z')
         return c - 'a' + 'A';
     if(mode == DOSNAME_8BIT || mode == DOSNAME_DBCS)
@@ -47,11 +55,44 @@ static char dos_valid_char(char c, int *dos_valid_char_in_dbcs)
         if((unsigned char)c >= 0xa0 && (unsigned char)c < 0xff)
             return c;
     }
+#ifdef LFN_SUPPORT
+    if(lfn)
+    {
+        if(c == '+' || c == ',' || c == '.' || c == ';' || c == '=' || c == '[' ||
+           c == ']')
+            return c;
+    }
+#endif
     return 0;
 }
 
+#ifdef LFN_SUPPORT
+static const uint8_t *get_last_dot(const uint8_t *path)
+{
+    const uint8_t *ret = 0;
+    int in_dbcs = 0;
+    while(*path)
+    {
+        if(in_dbcs)
+        {
+            path++;
+            in_dbcs = 0;
+            continue;
+        }
+        if(mode == DOSNAME_DBCS && check_dbcs_1st(*path))
+            in_dbcs = 1;
+        else if(*path == '.')
+            ret = path;
+        path++;
+    }
+    if(!ret)
+        ret = path;
+    return ret;
+}
+#endif
+
 // Converts the Unix filename "u" to a Dos filename "d".
-static int unix_to_dos(uint8_t *d, const char *u)
+static int unix_to_dos(uint8_t *d, const char *u, int lfn)
 {
     int dot;
     int k;
@@ -69,7 +110,7 @@ static int unix_to_dos(uint8_t *d, const char *u)
             else if(c >= 0xf0)
             {
                 *dst++ = '~';
-                for(int i = 0; i < 4 && *u; u++)
+                for(int i = 0; i < 4 && *u; i++, u++)
                     /*NOP*/;
             }
             else
@@ -97,10 +138,30 @@ static int unix_to_dos(uint8_t *d, const char *u)
         *dst = '\0';
         u = (char *)buffer;
     }
+#ifdef LFN_SUPPORT
+    if(lfn)
+    {
+        in_dbcs = 0;
+        for(k = 0; *u && k < lfn_filemax; k++, u++, d++)
+        {
+            char c = dos_valid_char(*u, &in_dbcs, 1);
+            if(!in_dbcs && c == '.')
+                dot = k;
+            if(c)
+                *d = c;
+            else
+                *d = '~';
+        }
+        *d = 0;
+        if(buffer)
+            free(buffer);
+        return dot;
+    }
+#endif
 
     for(k = 0; *u && *u != '.' && k < 8; k++, u++, d++)
     {
-        char c = dos_valid_char(*u, &in_dbcs);
+        char c = dos_valid_char(*u, &in_dbcs, 0);
         if(c)
             *d = c;
         else
@@ -118,7 +179,7 @@ static int unix_to_dos(uint8_t *d, const char *u)
         u++;
         for(k = 0; *u && k < 3; k++, u++, d++)
         {
-            char c = dos_valid_char(*u, &in_dbcs);
+            char c = dos_valid_char(*u, &in_dbcs, 0);
             if(c)
                 *d = c;
             else
@@ -141,6 +202,18 @@ static int dos_search_name(const struct dos_file_list *dl, const uint8_t *name)
     return 0;
 }
 
+#ifdef LFN_SUPPORT
+static int lfn_search_name(const struct dos_file_list *dl, const uint8_t *name)
+{
+    for(; dl->unixname; dl++)
+    {
+        if(dl->lfnname && !strcmp((const char *)dl->lfnname, (const char *)name))
+            return 1;
+    }
+    return 0;
+}
+#endif
+
 static const struct dos_file_list *dos_search_unix_name(const struct dos_file_list *dl,
                                                         const char *name)
 {
@@ -153,7 +226,7 @@ static const struct dos_file_list *dos_search_unix_name(const struct dos_file_li
 }
 
 // Sort unix entries so that '~' and '.' comes before other chars
-static int dos_unix_sort(const struct dirent **s1, const struct dirent **s2)
+static int dos_unix_sort_impl(const struct dirent **s1, const struct dirent **s2, int lfn)
 {
     const char *n1 = (*s1)->d_name;
     const char *n2 = (*s2)->d_name;
@@ -161,8 +234,8 @@ static int dos_unix_sort(const struct dirent **s1, const struct dirent **s2)
     int in_dbcs2 = 0;
     for(;; n1++, n2++)
     {
-        char c1 = dos_valid_char(*n1, &in_dbcs1);
-        char c2 = dos_valid_char(*n2, &in_dbcs2);
+        char c1 = dos_valid_char(*n1, &in_dbcs1, lfn);
+        char c2 = dos_valid_char(*n2, &in_dbcs2, lfn);
         if(c1 && c1 == c2)
             continue;
         if(*n1 && *n1 == *n2)
@@ -194,6 +267,16 @@ static int dos_unix_sort(const struct dirent **s1, const struct dirent **s2)
         return c1 - c2;
     }
 }
+static int dos_unix_sort(const struct dirent **s1, const struct dirent **s2)
+{
+    return dos_unix_sort_impl(s1, s2, 0);
+}
+#ifdef LFN_SUPPORT
+static int dos_unix_sort_lfn(const struct dirent **s1, const struct dirent **s2)
+{
+    return dos_unix_sort_impl(s1, s2, 1);
+}
+#endif
 
 // GLOB
 static int dos_glob(const uint8_t *n, const char *g)
@@ -253,17 +336,82 @@ static int dos_glob(const uint8_t *n, const char *g)
         return 0;
     return 1;
 }
+#ifdef LFN_SUPPORT
+static int lfn_glob(const uint8_t *n, const char *g)
+{
+    int in_dbcs_g = 0;
+    int in_dbcs_n = 0;
+    const uint8_t *n_last_dot = get_last_dot(n);
+    while(*n && *g)
+    {
+        char cg = *g, cn = *n;
+        // An '*' consumes any letter, except the last dot
+        if(!in_dbcs_g && cg == '*')
+        {
+            n = n_last_dot;
+            g++;
+            continue;
+        }
+        // An '?' consumes one letter, except the last dot
+        if(!in_dbcs_g && cg == '?')
+        {
+            g++;
+            if(n != n_last_dot)
+                n++;
+            continue;
+        }
+        // Convert letters to uppercase
+        if(!in_dbcs_g && cg >= 'a' && cg <= 'z')
+            cg = cg - 'a' + 'A';
+        if(!in_dbcs_n && cn >= 'a' && cn <= 'z')
+            cn = cn - 'a' + 'A';
+        // DBCS check
+        if(in_dbcs_g)
+            in_dbcs_g = 0;
+        else if(mode == DOSNAME_DBCS && check_dbcs_1st(cg))
+            in_dbcs_g = 1;
+        if(in_dbcs_n)
+            in_dbcs_n = 0;
+        else if(mode == DOSNAME_DBCS && check_dbcs_1st(cn))
+            in_dbcs_n = 1;
+        // Consume equal letters or '?'
+        if(cg == cn)
+        {
+            g++;
+            n++;
+            continue;
+        }
+        return 0;
+    }
+    if(mode == DOSNAME_DBCS && in_dbcs_g)
+        return 0;
+    // Consume extra '*', '?' and '.'
+    while(*g == '*' || *g == '?' || *g == '.')
+        g++;
+    if(*n || *g)
+        return 0;
+    return 1;
+}
+#endif
 // DOS files are 8 chars name, 3 chars extension, uppercase only.
 // We read the full directory and convert filenames to dos names,
 // then we can search the correct ones. 'path' is the Unix path,
 // returning all the files matching with glob.
 static struct dos_file_list *dos_read_dir(const char *path, const char *glob, int label,
-                                          int dirs)
+                                          int dirs, int lfn)
 {
     struct dirent **dir;
     struct dos_file_list *ret;
 
+#ifdef LFN_SUPPORT
+    int n;
+    if(lfn)
+        n = scandir(path, &dir, 0, dos_unix_sort_lfn);
+    else
+        n = scandir(path, &dir, 0, dos_unix_sort);
+#else
     int n = scandir(path, &dir, 0, dos_unix_sort);
+#endif
     if(n < 0 || !(n || label))
         return 0;
 
@@ -283,6 +431,9 @@ static struct dos_file_list *dos_read_dir(const char *path, const char *glob, in
     {
         dirp->unixname = strdup("//");
         memcpy(dirp->dosname, "DISK LABEL", 11);
+#ifdef LFN_SUPPORT
+        dirp->lfnname = (uint8_t *)strdup("DISK LABEL");
+#endif
         dirp++;
     }
 
@@ -305,6 +456,9 @@ static struct dos_file_list *dos_read_dir(const char *path, const char *glob, in
             else
             {
                 memcpy(dirp->dosname, dir[i]->d_name, strlen(dir[i]->d_name) + 1);
+#ifdef LFN_SUPPORT
+                dirp->lfnname = (uint8_t *)strdup(dir[i]->d_name);
+#endif
                 dirp->unixname = fpath;
                 dirp++;
             }
@@ -321,7 +475,7 @@ static struct dos_file_list *dos_read_dir(const char *path, const char *glob, in
             }
         }
         // Ok, add to list
-        int dot = unix_to_dos(dirp->dosname, dir[i]->d_name);
+        int dot = unix_to_dos(dirp->dosname, dir[i]->d_name, 0);
         if(!dot)
         {
             free(fpath);
@@ -356,6 +510,44 @@ static struct dos_file_list *dos_read_dir(const char *path, const char *glob, in
             free(fpath);
             continue;
         }
+#ifdef LFN_SUPPORT
+        // Ok add to the list
+        {
+            uint8_t buf[lfn_filemax + 1];
+            dot = unix_to_dos(buf, dir[i]->d_name, 1);
+            dirp->lfnname = (uint8_t *)strdup((char *)buf);
+        }
+        // Search new LFN name in the list so far
+        pos = dot;
+        n = 0, max = 0;
+        while(pos && lfn_search_name(ret, dirp->lfnname))
+        {
+            // Change the name... append "~" before dot.
+            if(n >= max)
+            {
+                pos--;
+                max *= 10;
+                if(!max)
+                    max = 1;
+                n = 0;
+                dirp->lfnname[pos] = '~';
+            }
+            int k = pos + 1, d = max / 10;
+            while(d)
+            {
+                dirp->lfnname[k] = '0' + ((n / d) % 10);
+                d /= 10;
+                k++;
+            }
+            n++;
+        }
+        if(!pos)
+        {
+            free(dirp->lfnname);
+            free(fpath);
+            continue;
+        }
+#endif
         // Ok add to the list
         dirp->unixname = fpath;
         dirp++;
@@ -366,6 +558,25 @@ static struct dos_file_list *dos_read_dir(const char *path, const char *glob, in
     struct dos_file_list *d;
     for(dirp = ret, d = ret; dirp->unixname; dirp++)
     {
+#ifdef LFN_SUPPORT
+        if(lfn_glob(dirp->lfnname, glob))
+        {
+            *d = *dirp;
+            d++;
+        }
+        else if(dos_glob(dirp->dosname, glob))
+        {
+            *d = *dirp;
+            d++;
+        }
+        else
+        {
+            free(dirp->lfnname);
+            dirp->lfnname = 0;
+            free(dirp->unixname);
+            dirp->unixname = 0;
+        }
+#else
         if(dos_glob(dirp->dosname, glob))
         {
             *d = *dirp;
@@ -376,7 +587,11 @@ static struct dos_file_list *dos_read_dir(const char *path, const char *glob, in
             free(dirp->unixname);
             dirp->unixname = 0;
         }
+#endif
     }
+#ifdef LFN_SUPPORT
+    d->lfnname = 0;
+#endif
     d->unixname = 0;
     return ret;
 }
@@ -388,6 +603,10 @@ void dos_free_file_list(struct dos_file_list *dl)
         return;
     while(d->unixname)
     {
+#ifdef LFN_SUPPORT
+        if(d->lfnname)
+            free(d->lfnname);
+#endif
         free(d->unixname);
         d++;
     }
@@ -412,7 +631,7 @@ static void str_lcase(char *str)
 
 ////////////////////////////////////////////////////////////////////
 // Converts a DOS filename to Unix filename, at the given path
-static char *dos_unix_name(const char *path, const char *dosN, int force)
+static char *dos_unix_name(const char *path, const char *dosN, int force, int lfn)
 {
     // First, try the name as given:
     struct stat st;
@@ -463,7 +682,7 @@ static char *dos_unix_name(const char *path, const char *dosN, int force)
     if(0 == stat(ret, &st))
         return ret;
     // Finally, do a full directory search
-    struct dos_file_list *dl = dos_read_dir(bpath, dosN, 0, 1);
+    struct dos_file_list *dl = dos_read_dir(bpath, dosN, 0, 1, lfn);
     if(!dl || !dl->unixname)
     {
         // The filename does not exists, returns the lowercase version
@@ -505,22 +724,22 @@ static const char *get_last_separator(const char *path)
 
 // Recursive conversion, convert the first component and adds to the
 // already converted.
-static char *dos_unix_path_rec(const char *upath, const char *dospath, int force)
+static char *dos_unix_path_rec(const char *upath, const char *dospath, int force, int lfn)
 {
     // Search for last '\' or '/'
     const char *p = get_last_separator(dospath);
     if(!p)
     {
         // No more subdirs, convert filename
-        return dos_unix_name(upath, dospath, force);
+        return dos_unix_name(upath, dospath, force, lfn);
     }
     char *part1 = strndup(dospath, p - dospath);
     char *part2 = strdup(p + 1);
-    char *path = dos_unix_path_rec(upath, part1, force);
+    char *path = dos_unix_path_rec(upath, part1, force, lfn);
     char *ret = 0;
     if(path)
     {
-        ret = dos_unix_name(path, part2, force);
+        ret = dos_unix_name(path, part2, force, lfn);
         free(path);
     }
     free(part1);
@@ -530,6 +749,9 @@ static char *dos_unix_path_rec(const char *upath, const char *dospath, int force
 
 // CWD for all drives - 'A' to 'Z'
 static uint8_t dos_cwd[26][64];
+#ifdef LFN_SUPPORT
+static uint8_t lfn_cwd[26][lfn_pathmax];
+#endif
 static int dos_default_drive = 2; // C:
 
 void dos_set_default_drive(int drive)
@@ -723,13 +945,13 @@ void make_fcbname(char *dos_shortname, const char *path)
             while(pos < 8)
                 dos_shortname[pos++] = ' ';
         else
-            dos_shortname[pos] = dos_valid_char(path[s], &in_dbcs);
+            dos_shortname[pos] = dos_valid_char(path[s], &in_dbcs, 0);
         ;
         s++;
     }
     in_dbcs = 0;
     for(; path[s] && pos < 11; pos++)
-        dos_shortname[pos] = dos_valid_char(path[s++], &in_dbcs);
+        dos_shortname[pos] = dos_valid_char(path[s++], &in_dbcs, 0);
     for(; pos < 11; pos++)
         dos_shortname[pos] = ' ';
 }
@@ -751,43 +973,66 @@ const uint8_t *dos_get_cwd(int drive)
     return dos_cwd[drive];
 }
 
+const uint8_t *lfn_get_cwd(int drive)
+{
+    drive = drive ? drive - 1 : dos_default_drive;
+    return lfn_cwd[drive];
+}
+
 // changes CWD
-int dos_change_cwd(char *path)
+int dos_change_cwd(char *path, int lfn)
 {
     debug(debug_dos, "\tchdir '%s'\n", path);
-    int drive = dos_path_normalize(path, 63);
+    int drive = dos_path_normalize(path, lfn ? lfn_pathmax : 63);
     // Check if path exists
-    char *fname = dos_unix_path_rec(get_base_path(drive), path, 0);
+    char *fname = dos_unix_path_rec(get_base_path(drive), path, 0, lfn);
     if(!fname)
         return 1;
     struct stat st;
     int e = stat(fname, &st);
-    free(fname);
     if(0 != e || !S_ISDIR(st.st_mode))
+    {
+        free(fname);
         return 1;
+    }
     // Ok, change current path
+#ifdef LFN_SUPPORT
+    char *p;
+    p = dos_real_path(fname, 0);
+    memcpy(dos_cwd[drive], p + 3, 64);
+    free(p);
+    p = dos_real_path(fname, 1);
+    memcpy(lfn_cwd[drive], p + 3, lfn_pathmax);
+    free(p);
+#else
     memcpy(dos_cwd[drive], path, 64);
+#endif
+    free(fname);
     return 0;
 }
 
 // changes CWD
-int dos_change_dir(int addr)
+int dos_change_dir(int addr, int lfn)
 {
-    return dos_change_cwd(getstr(addr, 63));
+#ifdef LFN_SUPPORT
+    if(lfn)
+        return dos_change_cwd(getstr(addr, lfn_pathmax), 1);
+#endif
+    return dos_change_cwd(getstr(addr, 63), 0);
 }
 
-static char *dos_unix_path_base(char *path, int force)
+static char *dos_unix_path_base(char *path, int force, int lfn)
 {
     // Normalize
     int drive = dos_path_normalize(path, 63);
     // Get UNIX base path:
     const char *base = get_base_path(drive);
     // Adds CWD if path is not absolute
-    return dos_unix_path_rec(base, path, force);
+    return dos_unix_path_rec(base, path, force, lfn);
 }
 
 // Search a file in each possible "append" path component
-static char *search_append_path(char *path, const char *append)
+static char *search_append_path(char *path, const char *append, int lfn)
 {
     // Now we concatenate each of the append paths:
     while(*append)
@@ -803,21 +1048,36 @@ static char *search_append_path(char *path, const char *append)
                 append++;
 
             // Construct new path:
+#ifdef LFN_SUPPORT
+            if(lfn)
+            {
+                char full_path_lfn[lfn_pathmax];
+                if(snprintf(full_path_lfn, lfn_pathmax, "%.*s\\%s", (int)(append - p), p,
+                            path) < lfn_pathmax)
+                {
+                    debug(debug_dos, "\tconvert dos path '%s'\n", full_path_lfn);
+                    char *result = dos_unix_path_base(full_path_lfn, 0, 1);
+                    if(result)
+                        return result;
+                }
+            }
+#else
             char full_path[64];
             if(snprintf(full_path, 64, "%.*s\\%s", (int)(append - p), p, path) < 64)
             {
                 debug(debug_dos, "\tconvert dos path '%s'\n", full_path);
-                char *result = dos_unix_path_base(full_path, 0);
+                char *result = dos_unix_path_base(full_path, 0, 0);
                 if(result)
                     return result;
             }
+#endif
         }
     }
     return 0;
 }
 
 // Converts a DOS full path to equivalent Unix filename
-char *dos_unix_path(int addr, int force, const char *append)
+char *dos_unix_path(int addr, int force, const char *append, int lfn)
 {
     char *path = getstr(addr, 63);
     debug(debug_dos, "\tconvert dos path '%s'\n", path);
@@ -832,15 +1092,22 @@ char *dos_unix_path(int addr, int force, const char *append)
         return strdup("/dev/null");
 #endif
     // Try to convert
-    char *result = dos_unix_path_base(path, force);
+    char *result = dos_unix_path_base(path, force, lfn);
     // Be done if the path is found, or no append.
     if(result || !append)
         return result;
     // Restore original path, and see if path is absolute, so we don't append
+#ifdef LFN_SUPPORT
+    if(lfn)
+        path = getstr(addr, lfn_pathmax);
+    else
+        path = getstr(addr, 63);
+#else
     path = getstr(addr, 63);
+#endif
     if(!char_valid(path[0]) || (path[1] == ':' && !char_valid(path[2])))
         return result;
-    return search_append_path(path, append);
+    return search_append_path(path, append, lfn);
 }
 
 // Converts a FCB path to equivalent Unix filename
@@ -868,15 +1135,15 @@ char *dos_unix_path_fcb(int addr, int force, const char *append)
     for(int pos = 0; pos < 8 && opos < 13; pos++, opos++)
         if(in_dbcs == 0 && fcb_name[pos] == '?')
             filename[opos] = '?';
-        else if(0 == (filename[opos] = dos_valid_char(fcb_name[pos], &in_dbcs)))
+        else if(0 == (filename[opos] = dos_valid_char(fcb_name[pos], &in_dbcs, 0)))
             break;
-    if(opos < 63 && (dos_valid_char(fcb_name[8], &in_dbcs) || fcb_name[8] == '?'))
+    if(opos < 63 && (dos_valid_char(fcb_name[8], &in_dbcs, 0) || fcb_name[8] == '?'))
         filename[opos++] = '.';
     in_dbcs = 0;
     for(int pos = 8; pos < 11 && opos < 63; pos++, opos++)
         if(in_dbcs == 0 && fcb_name[pos] == '?')
             filename[opos] = '?';
-        else if(0 == (filename[opos] = dos_valid_char(fcb_name[pos], &in_dbcs)))
+        else if(0 == (filename[opos] = dos_valid_char(fcb_name[pos], &in_dbcs, 0)))
             break;
     filename[opos] = 0;
 
@@ -891,19 +1158,19 @@ char *dos_unix_path_fcb(int addr, int force, const char *append)
     // Get UNIX base path:
     const char *base = get_base_path(drive);
     // Adds CWD if path is not absolute
-    char *result = dos_unix_path_rec(base, path, force);
+    char *result = dos_unix_path_rec(base, path, force, 0);
     // Be done if the path is found, or no append.
     if(result || !append)
         return result;
 
     // Now, try append paths - using full path resolution
-    return search_append_path(filename, append);
+    return search_append_path(filename, append, 0);
 }
 
 ////////////////////////////////////////////////////////////////////
 // Implements FindFirstFile
 // NOTE: this frees fspec before return
-static struct dos_file_list *find_first_file(char *fspec, int label, int dirs)
+static struct dos_file_list *find_first_file(char *fspec, int label, int dirs, int lfn)
 {
     // Now, separate the path to the spec
     char *glob, *unixpath, *p = strrchr(fspec, '/');
@@ -950,21 +1217,21 @@ static struct dos_file_list *find_first_file(char *fspec, int label, int dirs)
     debug(debug_dos, "\tfind_first '%s' at '%s'\n", glob, unixpath);
 
     // Read the directory using the given GLOB
-    struct dos_file_list *dirEntries = dos_read_dir(unixpath, glob, label, dirs);
+    struct dos_file_list *dirEntries = dos_read_dir(unixpath, glob, label, dirs, lfn);
     free(fspec);
     if(buffer)
         free(buffer);
     return dirEntries;
 }
 
-struct dos_file_list *dos_find_first_file(int addr, int label, int dirs)
+struct dos_file_list *dos_find_first_file(int addr, int label, int dirs, int lfn)
 {
-    return find_first_file(dos_unix_path(addr, 1, 0), label, dirs ? 2 : 0);
+    return find_first_file(dos_unix_path(addr, 1, 0, lfn), label, dirs ? 2 : 0, lfn);
 }
 
 struct dos_file_list *dos_find_first_file_fcb(int addr, int label)
 {
-    return find_first_file(dos_unix_path_fcb(addr, 1, 0), label, 1);
+    return find_first_file(dos_unix_path_fcb(addr, 1, 0), label, 1, 0);
 }
 
 static char *dos_check_in_drive(int drive, const char *path)
@@ -990,7 +1257,7 @@ static char *dos_check_in_drive(int drive, const char *path)
     return base;
 }
 
-char *dos_real_path(const char *unix_path)
+char *dos_real_path(const char *unix_path, int lfn)
 {
     // Normalize unix path:
     char *path = realpath(unix_path, 0);
@@ -1018,7 +1285,15 @@ char *dos_real_path(const char *unix_path)
     }
     // Convert remaining components
     size_t l = strlen(base), k = strlen(path);
+#ifdef LFN_SUPPORT
+    char *ret;
+    if(lfn)
+        ret = calloc(1, lfn_pathmax + 1);
+    else
+        ret = calloc(1, 65);
+#else
     char *ret = calloc(1, 65);
+#endif
     if(!ret)
     {
         free(base);
@@ -1039,7 +1314,7 @@ char *dos_real_path(const char *unix_path)
         else
             *sep = 0;
         // And search the DOS path name
-        struct dos_file_list *fl = dos_read_dir(path, "*.*", 0, 1);
+        struct dos_file_list *fl = dos_read_dir(path, "*.*", 0, 1, lfn);
         path[l - 1] = '/';
         const struct dos_file_list *sl = dos_search_unix_name(fl, path);
         if(!sl)
@@ -1052,8 +1327,16 @@ char *dos_real_path(const char *unix_path)
             free(ret);
             return 0;
         }
+#ifdef LFN_SUPPORT
+        strncat(ret, "\\", lfn ? lfn_pathmax : 64);
+        if(lfn)
+            strncat(ret, (const char *)sl->lfnname, lfn_pathmax);
+        else
+            strncat(ret, (const char *)sl->dosname, 64);
+#else
         strncat(ret, "\\", 64);
         strncat(ret, (const char *)sl->dosname, 64);
+#endif
         dos_free_file_list(fl);
         l = sep - path;
     }
