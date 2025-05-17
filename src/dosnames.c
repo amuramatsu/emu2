@@ -1,4 +1,5 @@
 #define _GNU_SOURCE
+#define GETSTR_BUF_SIZE 512
 
 #include "dosnames.h"
 #include "codepage.h"
@@ -750,7 +751,7 @@ static char *dos_unix_path_rec(const char *upath, const char *dospath, int force
 // CWD for all drives - 'A' to 'Z'
 static uint8_t dos_cwd[26][64];
 #ifdef LFN_SUPPORT
-static uint8_t lfn_cwd[26][lfn_pathmax];
+static uint8_t lfn_cwd[26][lfn_pathmax + 1];
 #endif
 static int dos_default_drive = 2; // C:
 
@@ -982,7 +983,21 @@ const uint8_t *lfn_get_cwd(int drive)
 // changes CWD
 int dos_change_cwd(char *path, int lfn)
 {
+    static char buf[lfn_pathmax + 1];
     debug(debug_dos, "\tchdir '%s'\n", path);
+    if(path[0] == 0)
+    {
+        buf[0] = '\\';
+        buf[1] = 0;
+        path = buf;
+    }
+    else if(path[1] == ':' && path[2] == 0)
+    {
+        strcpy(buf, path);
+        buf[2] = '\\';
+        buf[3] = 0;
+        path = buf;
+    }
     int drive = dos_path_normalize(path, lfn ? lfn_pathmax : 63);
     // Check if path exists
     char *fname = dos_unix_path_rec(get_base_path(drive), path, 0, lfn);
@@ -999,10 +1014,16 @@ int dos_change_cwd(char *path, int lfn)
 #ifdef LFN_SUPPORT
     char *p;
     p = dos_real_path(fname, 0);
-    memcpy(dos_cwd[drive], p + 3, 64);
+    if(strlen(p) < 2)
+        dos_cwd[drive][0] = 0;
+    else
+        memcpy(dos_cwd[drive], p + 3, 64);
     free(p);
     p = dos_real_path(fname, 1);
-    memcpy(lfn_cwd[drive], p + 3, lfn_pathmax);
+    if(strlen(p) < 2)
+        lfn_cwd[drive][0] = 0;
+    else
+        memcpy(lfn_cwd[drive], p + 3, lfn_pathmax);
     free(p);
 #else
     memcpy(dos_cwd[drive], path, 64);
@@ -1051,7 +1072,7 @@ static char *search_append_path(char *path, const char *append, int lfn)
 #ifdef LFN_SUPPORT
             if(lfn)
             {
-                char full_path_lfn[lfn_pathmax];
+                char full_path_lfn[lfn_pathmax + 1];
                 if(snprintf(full_path_lfn, lfn_pathmax, "%.*s\\%s", (int)(append - p), p,
                             path) < lfn_pathmax)
                 {
@@ -1330,7 +1351,7 @@ char *dos_real_path(const char *unix_path, int lfn)
 #ifdef LFN_SUPPORT
         strncat(ret, "\\", lfn ? lfn_pathmax : 64);
         if(lfn)
-            strncat(ret, (const char *)sl->lfnname, lfn_pathmax);
+            strncat(ret, (const char *)sl->lfnname, lfn_pathmax + 1);
         else
             strncat(ret, (const char *)sl->dosname, 64);
 #else

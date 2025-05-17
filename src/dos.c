@@ -61,6 +61,8 @@ static unsigned dosDTA;
 
 // Emulated DOS version: default to DOS 3.30
 static unsigned dosver = 0x1E03;
+// Emulated Windows version: default to None
+static unsigned winver = 0;
 
 // Allocates memory for static DOS tables, from "rom" memory
 uint32_t get_static_memory(uint16_t bytes, uint16_t align)
@@ -710,6 +712,20 @@ static uint32_t get_time_date(time_t tm)
         return (1 << 16) | 1;
 }
 
+// Converts DOS time/date to Unix time_t
+static time_t decode_time_date(uint32_t datetime)
+{
+    struct tm lt;
+    memset(&lt, 0, sizeof(struct tm));
+    lt.tm_sec = (datetime & 0x1F) * 2;
+    lt.tm_min = (datetime >> 5) & 0x3F;
+    lt.tm_hour = (datetime >> 11) & 0x1F;
+    lt.tm_mday = (datetime >> 16) & 0x1F;
+    lt.tm_mon = (datetime >> 21) & 0x0F;
+    lt.tm_year = ((datetime >> 25) & 0x7F) + 80;
+    return timelocal(&lt);
+}
+
 // Converts Unix mode to DOS attributes
 static int get_attributes(mode_t md)
 {
@@ -838,9 +854,13 @@ static void update_dos_sft(int sidx, const struct stat *st)
 // DOS int 21, ah=43
 static void intr21_43(int lfn)
 {
-    unsigned al = cpuGetAX() & 0xFF;
+    unsigned func;
+    if(lfn)
+        func = cpuGetBX() & 0xFF;
+    else
+        func = cpuGetAX() & 0xFF;
     int dname = cpuGetAddrDS(cpuGetDX());
-    if(al == 0 || al == 1)
+    if(func == 0 || func == 1)
     {
         // Get path
         char *fname = dos_unix_path(dname, 0, append_path(), lfn);
@@ -872,7 +892,7 @@ static void intr21_43(int lfn)
             return;
         }
         int current = get_attributes(st.st_mode);
-        if(al == 0)
+        if(func == 0)
         {
             // GET FILE ATTRIBUTES
             cpuSetCX(current);
@@ -1453,9 +1473,15 @@ struct find_first_lfn
 };
 static struct find_first_lfn *find_first_lfn_root;
 
-static uint64_t get_lfs_time_date(time_t t)
+#define LFN_TIME_OFFSET 11644473600
+static uint64_t get_lfn_time_date(time_t t)
 {
-    return ((uint64_t)t + 11644473600) * 10 * 1000 * 1000;
+    return ((uint64_t)t + LFN_TIME_OFFSET) * 10 * 1000 * 1000;
+}
+
+static time_t decode_lfn_time_date(uint64_t t)
+{
+    return (time_t)((t / (10 * 1000 * 1000)) - LFN_TIME_OFFSET);
 }
 
 static struct find_first_lfn *search_lfn_find_handle(uint16_t handle)
@@ -1503,7 +1529,8 @@ static void lfn_find_next(int first, struct find_first_lfn *ffl)
         cpuSetFlag(cpuFlag_CF);
         dos_error = first ? 0x02 : 0x12;
         cpuSetAX(dos_error);
-        free_lfn_find_handle(ffl);
+        if(first)
+            free_lfn_find_handle(ffl);
     }
     else
     {
@@ -1521,9 +1548,9 @@ static void lfn_find_next(int first, struct find_first_lfn *ffl)
                 uint64_t mtime;
                 if(cpuGetSI() == 0x0000)
                 {
-                    ctime = get_lfs_time_date(st.st_ctime);
-                    atime = get_lfs_time_date(st.st_atime);
-                    mtime = get_lfs_time_date(st.st_mtime);
+                    ctime = get_lfn_time_date(st.st_ctime);
+                    atime = get_lfn_time_date(st.st_atime);
+                    mtime = get_lfn_time_date(st.st_mtime);
                 }
                 else
                 {
@@ -1543,13 +1570,18 @@ static void lfn_find_next(int first, struct find_first_lfn *ffl)
             }
             else
             {
+                uint64_t dummy;
+                if(cpuGetSI() == 0x0000)
+                    dummy = 0;
+                else
+                    dummy = 0x10001;
                 put32(addr + 0x00, 0);
-                put32(addr + 0x04, 0);
-                put32(addr + 0x08, 0);
-                put32(addr + 0x0C, 0);
-                put32(addr + 0x10, 0);
-                put32(addr + 0x14, 0);
-                put32(addr + 0x18, 0);
+                put32(addr + 0x04, dummy & 0xFFFFFFFF);
+                put32(addr + 0x08, (dummy >> 32) & 0xFFFFFFFF);
+                put32(addr + 0x0C, dummy & 0xFFFFFFFF);
+                put32(addr + 0x10, (dummy >> 32) & 0xFFFFFFFF);
+                put32(addr + 0x14, dummy & 0xFFFFFFFF);
+                put32(addr + 0x18, (dummy >> 32) & 0xFFFFFFFF);
                 put32(addr + 0x1C, 0);
                 put32(addr + 0x20, 0);
             }
@@ -1557,13 +1589,18 @@ static void lfn_find_next(int first, struct find_first_lfn *ffl)
         else
         {
             // Fills volume label data
+            uint64_t dummy;
+            if(cpuGetSI() == 0x0000)
+                dummy = 0;
+            else
+                dummy = 0x10001;
             put32(addr + 0x00, 8);
-            put32(addr + 0x04, 0);
-            put32(addr + 0x08, 0);
-            put32(addr + 0x0C, 0);
-            put32(addr + 0x10, 0);
-            put32(addr + 0x14, 0);
-            put32(addr + 0x18, 0);
+            put32(addr + 0x04, dummy & 0xFFFFFFFF);
+            put32(addr + 0x08, (dummy >> 32) & 0xFFFFFFFF);
+            put32(addr + 0x0C, dummy & 0xFFFFFFFF);
+            put32(addr + 0x10, (dummy >> 32) & 0xFFFFFFFF);
+            put32(addr + 0x14, dummy & 0xFFFFFFFF);
+            put32(addr + 0x18, (dummy >> 32) & 0xFFFFFFFF);
             put32(addr + 0x1C, 0);
             put32(addr + 0x20, 0);
         }
@@ -1573,10 +1610,10 @@ static void lfn_find_next(int first, struct find_first_lfn *ffl)
             put8(addr + 0x2C + i, d->lfnname[i]);
         put8(addr + 0x2C + i, 0);
         putmem(addr + 0x130, d->dosname, 13);
+        put8(addr + 0x130 + 13, 0);
         // Next file
         ffl->find_first_ptr++;
         cpuClrFlag(cpuFlag_CF);
-        // Some DOS programs require returning AX=0 on success.
         dos_error = 0;
         cpuSetCX(0);
         if(first)
@@ -1627,6 +1664,11 @@ static void intr21_lfn(int ax)
         break;
     case 0x713B: // CHDIR
     {
+        uint32_t addr = cpuGetAddrDS(cpuGetDX());
+        debug(debug_dos, "\t");
+        for(int i = 0; i < 260 && get8(addr); i++)
+            debug(debug_dos, "%c", get8(addr++));
+        debug(debug_dos, "\n");
         if(dos_change_dir(cpuGetAddrDS(cpuGetDX()), 1))
         {
             dos_error = 3;
@@ -1673,8 +1715,89 @@ static void intr21_lfn(int ax)
         break;
     }
     case 0x7143: // Get/Set attributes
-        intr21_43(1);
+    {
+        switch(cpuGetBX() & 0xFF)
+        {
+        case 0x00: // Get attribute
+        case 0x01: // Set attribute
+            intr21_43(1);
+            break;
+        case 0x02: // Get Physical size of compressed file
+        case 0x04: // Get mtime
+        case 0x06: // Get atime
+        case 0x08: // set ctime
+        {
+            uint32_t fname_addr = cpuGetAddrDS(cpuGetDX());
+            // Get path
+            char *fname = dos_unix_path(fname_addr, 0, append_path(), 1);
+            if(!fname)
+            {
+                debug(debug_dos, "\t(file not found)\n");
+                cpuSetFlag(cpuFlag_CF);
+                dos_error = 2;
+                cpuSetAX(dos_error);
+                return;
+            }
+            debug(debug_dos, "\tattr '%s' = ", fname);
+            struct stat st;
+            if(0 != stat(fname, &st))
+            {
+                cpuSetFlag(cpuFlag_CF);
+                if(errno == EACCES)
+                    dos_error = 5;
+                else if(errno == ENAMETOOLONG || errno == ENOTDIR)
+                    dos_error = 3;
+                else if(errno == ENOENT)
+                    dos_error = 2;
+                else
+                    dos_error = 1;
+                cpuSetAX(dos_error);
+                free(fname);
+                debug(debug_dos, "ERROR %u\n", cpuGetAX());
+                return;
+            }
+            uint32_t time_date;
+            switch(cpuGetBX() & 0xFF)
+            {
+            case 0x02:
+                cpuSetDX((st.st_size >> 32) & 0xFFFFFFFF);
+                cpuSetAX(st.st_size & 0xFFFFFFFF);
+                break;
+            case 0x04:
+                time_date = get_time_date(st.st_mtime);
+                cpuSetCX(time_date & 0xFFFF);
+                cpuSetDI((time_date >> 16) & 0xFFFF);
+                break;
+            case 0x06:
+                time_date = get_time_date(st.st_atime);
+                cpuSetCX(time_date & 0xFFFF);
+                cpuSetDI((time_date >> 16) & 0xFFFF);
+                break;
+            case 0x08:
+                time_date = get_time_date(st.st_ctime);
+                cpuSetCX(time_date & 0xFFFF);
+                cpuSetDI((time_date >> 16) & 0xFFFF);
+                cpuSetSI(0);
+                break;
+            }
+            cpuClrFlag(cpuFlag_CF);
+            break;
+        }
+        case 0x03: // Set mtime
+        case 0x05: // Set atime
+        case 0x07: // set ctime
+            dos_error = 5;
+            cpuSetAX(0x7100);
+            cpuSetFlag(cpuFlag_CF);
+            break;
+        default:
+            dos_error = 1;
+            cpuSetAX(0x7100);
+            cpuSetFlag(cpuFlag_CF);
+            break;
+        }
         break;
+    }
     case 0x7147: // Get CWD
     {
         // Note: ignore drive letter in DL
@@ -1743,11 +1866,69 @@ static void intr21_lfn(int ax)
         switch(cpuGetCX() & 0xff)
         {
         case 0x0: // Truename
+        case 0x2: // canonical long filename or path
+        {
+            uint32_t path_addr = cpuGetAddrDS(cpuGetSI());
+            uint32_t output_addr = cpuGetAddrES(cpuGetDI());
+            char *unix_path = dos_unix_path(path_addr, 0, NULL, 0);
+            if(!unix_path)
+                unix_path = dos_unix_path(path_addr, 1, NULL, 1);
+            if(!unix_path)
+            {
+                dos_error = 0x03;
+                cpuSetAX(dos_error);
+                cpuSetFlag(cpuFlag_CF);
+                break;
+            }
+            char *dos_path = dos_real_path(unix_path, 1);
+            free(unix_path);
+            if(!dos_path)
+            {
+                dos_error = 0x02;
+                cpuSetAX(dos_error);
+                cpuSetFlag(cpuFlag_CF);
+                break;
+            }
+            dos_error = 0;
+            int i;
+            char *p = dos_path;
+            for(i = 0; i < 260 && *p; i++)
+                put8(output_addr++, *p++);
+            put8(output_addr, 0);
+            cpuClrFlag(cpuFlag_CF);
             break;
+        }
         case 0x1: // get short name
+        {
+            uint32_t path_addr = cpuGetAddrDS(cpuGetSI());
+            uint32_t output_addr = cpuGetAddrES(cpuGetDI());
+            char *unix_path = dos_unix_path(path_addr, 1, NULL, 1);
+            if(!unix_path)
+            {
+                dos_error = 0x03;
+                cpuSetAX(dos_error);
+                cpuSetFlag(cpuFlag_CF);
+                break;
+            }
+            char *dos_path = dos_real_path(unix_path, 0);
+            free(unix_path);
+            if(!dos_path)
+            {
+                dos_error = 0x02;
+                cpuSetAX(dos_error);
+                cpuSetFlag(cpuFlag_CF);
+                break;
+            }
+            dos_error = 0;
+            int i;
+            char *p = dos_path;
+            for(i = 0; i < 66 && *p; i++)
+                put8(output_addr++, *p++);
+            put8(output_addr, 0);
+            cpuClrFlag(cpuFlag_CF);
+
             break;
-        case 0x2: // canocical long filename or path
-            break;
+        }
         default:
             cpuSetAX(0x7100);
             cpuSetFlag(cpuFlag_CF);
@@ -1786,16 +1967,21 @@ static void intr21_lfn(int ax)
         break;
     }
     case 0x71a0: // Get Volume info
-        // uint32_t addr = cpuGetAddrES(cpuGetDI());
+    {
+        uint32_t addr = cpuGetAddrES(cpuGetDI());
+        int n = cpuGetCX();
+        if(n > 5)
+            n = 5;
+        putmem(addr, (const uint8_t *)"EMU2", n);
         cpuSetAX(0x0000);
-        // Support LFN, use Unicode, preserve case and search case sensitive
-        cpuSetBX(0x4007);
+        // Support LFN, use Unicode, preserve case and search case insensitive
+        cpuSetBX(0x4006);
         cpuSetCX(255);
         cpuSetDX(260);
-        // addr = "EMU2";
         dos_error = 0;
         cpuClrFlag(cpuFlag_CF);
         break;
+    }
     case 0x71a1: // FindClose
         if(free_lfn_find_handle(search_lfn_find_handle(cpuGetBX())))
         {
@@ -1810,17 +1996,79 @@ static void intr21_lfn(int ax)
         }
         break;
     case 0x71a6: // fstat
-        break;
+    {
+        int sidx = handle_to_sidx(cpuGetBX());
+        if(sidx < 0 || !filetable[sidx].f)
+        {
+            cpuSetFlag(cpuFlag_CF);
+            cpuSetAX(6);
+            dos_error = 6;
+            break;
+        }
+        struct stat st;
+        if(fstat(fileno(filetable[sidx].f), &st))
+        {
+            cpuSetFlag(cpuFlag_CF);
+            cpuSetAX(6);
+            dos_error = 6;
+            break;
+        }
+        uint32_t addr = cpuGetAddrDS(cpuGetDX());
+        uint64_t ctime = get_lfn_time_date(st.st_ctime);
+        uint64_t atime = get_lfn_time_date(st.st_atime);
+        uint64_t mtime = get_lfn_time_date(st.st_mtime);
+        put32(addr + 0x00, get_attributes(st.st_mode));
+        put32(addr + 0x04, ctime & 0xFFFFFFFFF);
+        put32(addr + 0x08, (ctime >> 32) & 0xFFFFFFFFF);
+        put32(addr + 0x0C, atime & 0xFFFFFFFFF);
+        put32(addr + 0x10, (atime >> 32) & 0xFFFFFFFFF);
+        put32(addr + 0x14, mtime & 0xFFFFFFFFF);
+        put32(addr + 0x18, (mtime >> 32) & 0xFFFFFFFFF);
+        put32(addr + 0x1C, 0x12345678); // Volume serial //FIXME
+        put32(addr + 0x20, (st.st_size >> 32) & 0xFFFFFFFF);
+        put32(addr + 0x24, st.st_size & 0xFFFFFFFF);
+        put32(addr + 0x2C, 0x12345678); // unique file identifier //FIXME
+        put32(addr + 0x30, 0x12345678); // unique file identifier //FIXME
+    }
+    break;
     case 0x71a7: // FileTime <-> DosTime
-        break;
-    case 0x71a8: // Gen Short Filename
-        break;
+        switch(cpuGetBX() & 0xFF)
+        {
+        case 0x00: // file time to dos time
+        {
+            uint32_t src = cpuGetAddrDS(cpuGetSI());
+            uint64_t n = get32(src + 4);
+            n = (n << 32) | get32(src);
+            uint32_t dostime = get_time_date(decode_lfn_time_date(n));
+            cpuSetCX(dostime & 0xFFFF);
+            cpuSetDX((dostime >> 16) & 0xFFFF);
+            cpuClrFlag(cpuFlag_CF);
+            break;
+        }
+        case 0x01: // dos time to file time
+        {
+            uint32_t dst = cpuGetAddrES(cpuGetDI());
+            uint64_t n =
+                get_lfn_time_date(decode_time_date((cpuGetDX() << 16) | cpuGetCX()));
+            put32(dst, n & 0xFFFFFFFF);
+            put32(dst + 4, (n >> 32) & 0xFFFFFFFF);
+            cpuClrFlag(cpuFlag_CF);
+            break;
+        }
+        default:
+            dos_error = 1;
+            cpuSetAX(0x7100);
+            cpuSetFlag(cpuFlag_CF);
+            break;
+        }
+    // case 0x71a8: // Gen Short Filename
+    //     break;
     default:
         debug(debug_dos, "UNHANDLED INT 21 (LFN), AX=%04x\n", cpuGetAX());
         debug(debug_int, "UNHANDLED INT 21 (LFN), AX=%04x\n", cpuGetAX());
         dos_error = 1;
-        cpuSetFlag(cpuFlag_CF);
         cpuSetAX(0x7100);
+        cpuSetFlag(cpuFlag_CF);
         break;
     }
 }
@@ -1984,6 +2232,17 @@ void intr2f(void)
     unsigned ax = cpuGetAX();
     switch(ax)
     {
+    case 0x1600: // Windows enhnace mode check
+        if(winver)
+            cpuSetAX(winver);
+        break;
+    case 0x160A: // Windows 3.x check
+        if(winver)
+        {
+            cpuSetBX(winver); // ver 4.0 (== Win95)
+            cpuSetCX(0x0003); // 386 enhanced mode
+        }
+        break;
     case 0x1680:
         // Windows "release VM timeslice", use sleep instead of yield to give more
         // cpu to other tasks.
@@ -1999,8 +2258,13 @@ void intr2f(void)
         uint32_t addr = xms_entry_point();
         cpuSetES(addr >> 4);
         cpuSetBX(addr & 0x0F);
+        break;
     }
-    break;
+    case 0x4680: // Windows 3.0 Installation check
+        if((winver & 0x00FF) > 3 ||
+           ((winver & 0x00FF) == 3 && (winver & 0xFF00) >= 0x0100))
+            cpuSetAX(0x0080); // Win3.1 or above?
+        break;
     case 0xB700: // APPEND installation check
         cpuSetAL(0xFF);
         break;
@@ -3960,6 +4224,24 @@ void init_dos(int argc, char **argv)
             print_error("invalid DOS version '%s'\n", ver);
         dosver = (minor << 8) | major;
         debug(debug_dos, "set dos version to '%s' = 0x%04x\n", ver, dosver);
+    }
+    if(getenv(ENV_WINVER))
+    {
+        const char *ver = getenv(ENV_WINVER);
+        char *end = 0;
+        int minor = 0;
+        int major = strtol(ver, &end, 10);
+
+        if(*end == '.' && end[1])
+            minor = strtol(end + 1, &end, 10);
+
+        if(*end || major < 0 || major > 10 || minor < 0 || minor > 99)
+            print_error("invalid Windows version '%s'\n", ver);
+        if(major == 0)
+            winver = 0;
+        else
+            winver = (minor << 8) | major;
+        debug(debug_dos, "set win version to '%s' = 0x%04x\n", ver, winver);
     }
 
     // Init INTERRUPT handlers - point to our own handlers
