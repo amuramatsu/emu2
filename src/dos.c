@@ -2180,7 +2180,7 @@ static void intr21_debug(void)
         "g/set disk serial number",      // 69
         "(commit file)",                 // 6a
         "(IFS ioctl)",                   // 6b
-        "(extd open/create)",            // 6c
+        "ext'd open/create",             // 6c
         "(find first rom)",              // 6d
         "(find next rom)",               // 6e
         "(g/set rom scan start addr)",   // 6f
