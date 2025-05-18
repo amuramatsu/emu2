@@ -2019,11 +2019,11 @@ static void intr21_lfn(int ax)
         put32(addr + 0x10, (atime >> 32) & 0xFFFFFFFFF);
         put32(addr + 0x14, mtime & 0xFFFFFFFFF);
         put32(addr + 0x18, (mtime >> 32) & 0xFFFFFFFFF);
-        put32(addr + 0x1C, 0x12345678); // Volume serial //FIXME
+        put32(addr + 0x1C, dos_volumeserial(filetable[sidx].devinfo & 0x1F)); // Volume serial
         put32(addr + 0x20, (st.st_size >> 32) & 0xFFFFFFFF);
         put32(addr + 0x24, st.st_size & 0xFFFFFFFF);
-        put32(addr + 0x2C, 0x12345678); // unique file identifier //FIXME
-        put32(addr + 0x30, 0x12345678); // unique file identifier //FIXME
+        put32(addr + 0x2C, (st.st_ino & 0xFFFFFFFF) ^ 0x12345678);         // unique file identifier
+        put32(addr + 0x30, ((st.st_ino >> 32) & 0xFFFFFFFF) ^ 0x12345678); // unique file identifier
     }
     break;
     case 0x71a7: // FileTime <-> DosTime
@@ -2177,7 +2177,7 @@ static void intr21_debug(void)
         "(g/set global codepage table)", // 66
         "set handle count",              // 67
         "fflush",                        // 68
-        "(g/set disk serial number)",    // 69
+        "g/set disk serial number",      // 69
         "(commit file)",                 // 6a
         "(IFS ioctl)",                   // 6b
         "(extd open/create)",            // 6c
@@ -3983,6 +3983,31 @@ int intr21(void)
             cpuSetCX(e);
         break;
     }
+    case 0x69:
+        if(ax == 0x6900)
+        {
+            int drive;
+            cpuClrFlag(cpuFlag_CF);
+            if((cpuGetBX() & 0xFF) == 0)
+                drive = dos_get_default_drive();
+            else
+                drive = (cpuGetBX() & 0xFF) - 1;
+            uint32_t serial = dos_volumeserial(drive);
+            uint32_t addr = cpuGetAddrDS(cpuGetDX());
+            put16(addr, 0);
+            put32(addr+2, serial);
+            for(int i=0; i < 11; i++)
+                put8(addr+6+i, ' ');
+            for(int i=0; i < 8; i++)
+                put8(addr+0x11+i, "FAT16   "[i]);
+        }
+        else
+        {
+            dos_error = 5;
+            cpuSetAX(dos_error);
+            cpuSetFlag(cpuFlag_CF);
+        }
+        
 #ifdef LFN_SUPPORT
     case 0x71: intr21_lfn(ax); break;
 #endif

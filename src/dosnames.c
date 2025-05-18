@@ -968,6 +968,18 @@ static const char *get_base_path(int drive)
     return base;
 }
 
+// Volume serial number
+uint32_t dos_volumeserial(int drive)
+{
+    const char *path = get_base_path(drive);
+    struct stat st;
+    if(0 == stat(path, &st))
+    {
+        return 0x12345678 ^ (uint32_t)st.st_ino;
+    }
+    return 0x12345678 + drive;
+}
+
 const uint8_t *dos_get_cwd(int drive)
 {
     drive = drive ? drive - 1 : dos_default_drive;
