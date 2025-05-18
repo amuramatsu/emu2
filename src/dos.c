@@ -1664,11 +1664,6 @@ static void intr21_lfn(int ax)
         break;
     case 0x713B: // CHDIR
     {
-        uint32_t addr = cpuGetAddrDS(cpuGetDX());
-        debug(debug_dos, "\t");
-        for(int i = 0; i < 260 && get8(addr); i++)
-            debug(debug_dos, "%c", get8(addr++));
-        debug(debug_dos, "\n");
         if(dos_change_dir(cpuGetAddrDS(cpuGetDX()), 1))
         {
             dos_error = 3;
