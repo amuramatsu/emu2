@@ -24,9 +24,6 @@ Some extended features are implemented from
   are working with debuggee without any options.
   If you want to use batch file which contains some TSRs and applications, you can use 
   [FreeCOM](https://github.com/FDOS/freecom) with environment variable `EMU2_EXEC_SAMEPROC=1`.
-
-I have a plan to implement features listed below.
-
 * Long File Name support like as Windows 95 DOS prompt.
 
 Installation
@@ -124,6 +121,11 @@ The available environment variables are:
                        checks this version to run.  You can specify a major
                        version or a major dot minor, for example "3.20", "2.11"
                        or "5".
+
+- `EMU2_WINVER`        Changes the reported Windows version, allowing programs
+                       that checks running on Windows or not. You can specify a
+                       major version or a major dot minor, for example "3.1" or
+                       "4.0" (4.0 is used by Windows 95).
 
 - `EMU2_ROWS`          Setups the VGA text mode to the given number of rows,
                        from 12 to 50 at the program start. Some full-screen DOS
