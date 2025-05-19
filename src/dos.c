@@ -1866,7 +1866,7 @@ static void intr21_lfn(int ax)
             uint32_t path_addr = cpuGetAddrDS(cpuGetSI());
             uint32_t output_addr = cpuGetAddrES(cpuGetDI());
             char *unix_path = dos_unix_path(path_addr, 0, NULL, 0);
-            if(!unix_path)
+            if(!unix_path && (cpuGetCX() & 0xFF) == 0)
                 unix_path = dos_unix_path(path_addr, 1, NULL, 1);
             if(!unix_path)
             {
@@ -1890,6 +1890,7 @@ static void intr21_lfn(int ax)
             for(i = 0; i < 260 && *p; i++)
                 put8(output_addr++, *p++);
             put8(output_addr, 0);
+            free(dos_path);
             cpuClrFlag(cpuFlag_CF);
             break;
         }
@@ -1938,7 +1939,7 @@ static void intr21_lfn(int ax)
         //   01     open if exists already, fail if not                 0
         //   02     clear and open if exists, fail if not               -
         //   10     create if not exists, fail if not.                  2
-        //   11     create if not exists, open if exists                -
+        //   11     create if not exists, open if exists                3
         //   12     create if not exists, clear and open if exists.     1
         int create = -1;
         if(cmod == 0x01)
@@ -1947,6 +1948,8 @@ static void intr21_lfn(int ax)
             create = 2;
         else if(cmod == 0x12)
             create = 1;
+        else if(cmod == 0x11)
+            create = 3;
         else
         {
             // TODO: unsupported open mode
@@ -2019,11 +2022,16 @@ static void intr21_lfn(int ax)
         put32(addr + 0x10, (atime >> 32) & 0xFFFFFFFFF);
         put32(addr + 0x14, mtime & 0xFFFFFFFFF);
         put32(addr + 0x18, (mtime >> 32) & 0xFFFFFFFFF);
-        put32(addr + 0x1C, dos_volumeserial(filetable[sidx].devinfo & 0x1F)); // Volume serial
+        put32(addr + 0x1C,
+              dos_volumeserial(filetable[sidx].devinfo & 0x1F)); // Volume serial
         put32(addr + 0x20, (st.st_size >> 32) & 0xFFFFFFFF);
         put32(addr + 0x24, st.st_size & 0xFFFFFFFF);
-        put32(addr + 0x2C, (st.st_ino & 0xFFFFFFFF) ^ 0x12345678);         // unique file identifier
-        put32(addr + 0x30, ((st.st_ino >> 32) & 0xFFFFFFFF) ^ 0x12345678); // unique file identifier
+        put32(addr + 0x28, st.st_nlink);
+        put32(addr + 0x2C,
+              (st.st_ino & 0xFFFFFFFF) ^ 0x12345678); // unique file identifier
+        put32(addr + 0x30,
+              ((st.st_ino >> 32) & 0xFFFFFFFF) ^ 0x12345678); // unique file identifier
+        cpuClrFlag(cpuFlag_CF);
     }
     break;
     case 0x71a7: // FileTime <-> DosTime
@@ -3995,11 +4003,11 @@ int intr21(void)
             uint32_t serial = dos_volumeserial(drive);
             uint32_t addr = cpuGetAddrDS(cpuGetDX());
             put16(addr, 0);
-            put32(addr+2, serial);
-            for(int i=0; i < 11; i++)
-                put8(addr+6+i, ' ');
-            for(int i=0; i < 8; i++)
-                put8(addr+0x11+i, "FAT16   "[i]);
+            put32(addr + 2, serial);
+            for(int i = 0; i < 11; i++)
+                put8(addr + 6 + i, ' ');
+            for(int i = 0; i < 8; i++)
+                put8(addr + 0x11 + i, "FAT16   "[i]);
         }
         else
         {
@@ -4007,7 +4015,7 @@ int intr21(void)
             cpuSetAX(dos_error);
             cpuSetFlag(cpuFlag_CF);
         }
-        
+
 #ifdef LFN_SUPPORT
     case 0x71: intr21_lfn(ax); break;
 #endif
