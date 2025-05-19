@@ -1002,11 +1002,13 @@ const uint8_t *dos_get_cwd(int drive)
     return dos_cwd[drive];
 }
 
+#ifdef LFN_SUPPORT
 const uint8_t *lfn_get_cwd(int drive)
 {
     drive = drive ? drive - 1 : dos_default_drive;
     return lfn_cwd[drive];
 }
+#endif
 
 // changes CWD
 int dos_change_cwd(char *path, int lfn)

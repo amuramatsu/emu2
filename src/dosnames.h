@@ -41,7 +41,9 @@ char *dos_real_path(const char *unix_path, int lfn);
 
 // Gets current working directory
 const uint8_t *dos_get_cwd(int drive);
+#ifdef LFN_SUPPORT
 const uint8_t *lfn_get_cwd(int drive);
+#endif
 
 // Sets/gets default drive
 void dos_set_default_drive(int drive);
