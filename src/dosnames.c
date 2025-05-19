@@ -67,7 +67,6 @@ static char dos_valid_char(char c, int *dos_valid_char_in_dbcs, int lfn)
     return 0;
 }
 
-#ifdef LFN_SUPPORT
 static const uint8_t *get_last_dot(const uint8_t *path)
 {
     const uint8_t *ret = 0;
@@ -90,7 +89,6 @@ static const uint8_t *get_last_dot(const uint8_t *path)
         ret = path;
     return ret;
 }
-#endif
 
 // Converts the Unix filename "u" to a Dos filename "d".
 static int unix_to_dos(uint8_t *d, const char *u, int lfn)
@@ -139,6 +137,8 @@ static int unix_to_dos(uint8_t *d, const char *u, int lfn)
         *dst = '\0';
         u = (char *)buffer;
     }
+    const char *last_dot = (const char *)get_last_dot((const uint8_t *)u);
+
 #ifdef LFN_SUPPORT
     if(lfn)
     {
@@ -151,7 +151,7 @@ static int unix_to_dos(uint8_t *d, const char *u, int lfn)
             if(c)
                 *d = c;
             else
-                *d = '~';
+                *d = '_';
         }
         *d = 0;
         if(buffer)
@@ -159,21 +159,36 @@ static int unix_to_dos(uint8_t *d, const char *u, int lfn)
         return dot;
     }
 #endif
-
-    for(k = 0; *u && *u != '.' && k < 8; k++, u++, d++)
+    k = 0;
+    while(*u && u < last_dot && k < 8)
     {
         char c = dos_valid_char(*u, &in_dbcs, 0);
+        if(!in_dbcs && *u == '.')
+        {
+            u++;
+            if(k == 0)
+                *d = '~';
+            else
+                continue;
+        }
         if(c)
             *d = c;
         else
-            *d = '~';
+            *d = '_';
+        k++;
+        u++;
+        d++;
+    }
+    if(in_dbcs)
+    {
+        k--;
+        d--;
     }
     in_dbcs = 0;
+
     dot = k;
-    // Search dot
-    while(*u && *u != '.')
-        u++;
-    if(*u && *(u + 1))
+    u = last_dot;
+    if(*u)
     {
         *d = '.';
         d++;
@@ -184,9 +199,10 @@ static int unix_to_dos(uint8_t *d, const char *u, int lfn)
             if(c)
                 *d = c;
             else
-                *d = '~';
+                *d = '_';
         }
     }
+    *d = 0;
     if(buffer)
         free(buffer);
     return dot;
