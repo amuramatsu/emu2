@@ -71,6 +71,9 @@ static const uint8_t *get_last_dot(const uint8_t *path)
 {
     const uint8_t *ret = 0;
     int in_dbcs = 0;
+
+    if(*path == '.') // skip first dot
+        path++;
     while(*path)
     {
         if(in_dbcs)
@@ -142,6 +145,7 @@ static int unix_to_dos(uint8_t *d, const char *u, int lfn)
 #ifdef LFN_SUPPORT
     if(lfn)
     {
+        dot = 0;
         in_dbcs = 0;
         for(k = 0; *u && k < lfn_filemax; k++, u++, d++)
         {
@@ -156,21 +160,28 @@ static int unix_to_dos(uint8_t *d, const char *u, int lfn)
         *d = 0;
         if(buffer)
             free(buffer);
+        if(dot == 0)
+            return k;
         return dot;
     }
 #endif
+    int firstchar = 1;
     k = 0;
     while(*u && u < last_dot && k < 8)
     {
         char c = dos_valid_char(*u, &in_dbcs, 0);
-        if(!in_dbcs && *u == '.')
+        if(*u == '.')
         {
             u++;
-            if(k == 0)
-                *d = '~';
-            else
-                continue;
+            if(firstchar)
+            {
+                *d++ = '_';
+                k++;
+            }
+            firstchar = 0;
+            continue;
         }
+        firstchar = 0;
         if(c)
             *d = c;
         else
@@ -1098,7 +1109,7 @@ static char *search_append_path(char *path, const char *append, int lfn)
             while(*append != ';' && *append)
                 append++;
 
-            // Construct new path:
+                // Construct new path:
 #ifdef LFN_SUPPORT
             if(lfn)
             {
@@ -1147,7 +1158,7 @@ char *dos_unix_path(int addr, int force, const char *append, int lfn)
     // Be done if the path is found, or no append.
     if(result || !append)
         return result;
-    // Restore original path, and see if path is absolute, so we don't append
+        // Restore original path, and see if path is absolute, so we don't append
 #ifdef LFN_SUPPORT
     if(lfn)
         path = getstr(addr, lfn_pathmax);
