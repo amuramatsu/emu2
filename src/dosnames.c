@@ -60,7 +60,7 @@ static char dos_valid_char(char c, int *dos_valid_char_in_dbcs, int lfn)
     if(lfn)
     {
         if(c == '+' || c == ',' || c == '.' || c == ';' || c == '=' || c == '[' ||
-           c == ']')
+           c == ']' || c == ' ')
             return c;
     }
 #endif
@@ -796,9 +796,11 @@ int dos_get_default_drive(void)
 }
 
 // Checks if char is a valid path name character
-static int char_valid(unsigned char c)
+static int char_valid(unsigned char c, int lfn)
 {
-    if(c < 33 || c == '/' || c == '\\')
+    if(lfn && c == ' ')
+        return 1;
+    else if(c < 33 || c == '/' || c == '\\')
         return 0;
     else
         return 1;
@@ -815,7 +817,7 @@ static int char_pathsep(unsigned char c)
 
 // Normalizes DOS path, removing relative items and adding base
 // Modifies the passed string and returns the drive as integer.
-int dos_path_normalize(char *path, unsigned max)
+int dos_path_normalize(char *path, unsigned max, int lfn)
 {
     int drive = dos_default_drive;
 
@@ -856,13 +858,13 @@ int dos_path_normalize(char *path, unsigned max)
                     in_dbcs = 0;
                 else if(check_dbcs_1st(path[end]))
                     in_dbcs = 1;
-                else if(!char_valid(path[end]))
+                else if(!char_valid(path[end], lfn))
                     break;
                 end++;
             }
         }
         else
-            while(char_valid(path[end]))
+            while(char_valid(path[end], lfn))
                 end++;
 
         if(path[end] && !char_pathsep(path[end]))
@@ -1041,7 +1043,7 @@ int dos_change_cwd(char *path, int lfn)
         buf[3] = 0;
         path = buf;
     }
-    int drive = dos_path_normalize(path, lfn ? lfn_pathmax : 63);
+    int drive = dos_path_normalize(path, lfn ? lfn_pathmax : 63, lfn);
     // Check if path exists
     char *fname = dos_unix_path_rec(get_base_path(drive), path, 0, lfn);
     if(!fname)
@@ -1088,7 +1090,7 @@ int dos_change_dir(int addr, int lfn)
 static char *dos_unix_path_base(char *path, int force, int lfn)
 {
     // Normalize
-    int drive = dos_path_normalize(path, 63);
+    int drive = dos_path_normalize(path, lfn ? lfn_pathmax : 63, lfn);
     // Get UNIX base path:
     const char *base = get_base_path(drive);
     // Adds CWD if path is not absolute
@@ -1111,7 +1113,7 @@ static char *search_append_path(char *path, const char *append, int lfn)
             while(*append != ';' && *append)
                 append++;
 
-                // Construct new path:
+            // Construct new path:
 #ifdef LFN_SUPPORT
             if(lfn)
             {
@@ -1160,7 +1162,7 @@ char *dos_unix_path(int addr, int force, const char *append, int lfn)
     // Be done if the path is found, or no append.
     if(result || !append)
         return result;
-        // Restore original path, and see if path is absolute, so we don't append
+    // Restore original path, and see if path is absolute, so we don't append
 #ifdef LFN_SUPPORT
     if(lfn)
         path = getstr(addr, lfn_pathmax);
@@ -1169,7 +1171,7 @@ char *dos_unix_path(int addr, int force, const char *append, int lfn)
 #else
     path = getstr(addr, 63);
 #endif
-    if(!char_valid(path[0]) || (path[1] == ':' && !char_valid(path[2])))
+    if(!char_valid(path[0], lfn) || (path[1] == ':' && !char_valid(path[2], lfn)))
         return result;
     return search_append_path(path, append, lfn);
 }

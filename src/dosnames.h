@@ -70,7 +70,7 @@ void dos_free_file_list(struct dos_file_list *dl);
 
 // Normalizes DOS path, removing relative items and adding base
 // Modifies the passed string and returns the drive as integer.
-int dos_path_normalize(char *path, unsigned max);
+int dos_path_normalize(char *path, unsigned max, int lfn);
 
 // Volume serial number
 uint32_t dos_volumeserial(int drive);

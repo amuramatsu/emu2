@@ -3805,7 +3805,7 @@ int intr21(void)
         meml_reads(path_addr, buf + 3, sizeof(buf) - 3);
         buf[sizeof(buf) - 1] = 0;
         debug(debug_dos, "\t '%s' ", buf + 3);
-        int drive = dos_path_normalize((char *)(buf + 3), 127 - 3);
+        int drive = dos_path_normalize((char *)(buf + 3), 127 - 3, 0);
         buf[2] = '\\';
         buf[1] = ':';
         buf[0] = 'A' + drive;
@@ -3827,7 +3827,7 @@ int intr21(void)
         for(i = 0; path_ptr[i] && i < 128 - 3; i++)
             (out_ptr + 3)[i] = path_ptr[i];
         out_ptr[127] = 0;
-        int drive = dos_path_normalize((char *)(out_ptr + 3), 127 - 3);
+        int drive = dos_path_normalize((char *)(out_ptr + 3), 127 - 3, 0);
         out_ptr[2] = '\\';
         out_ptr[1] = ':';
         out_ptr[0] = 'A' + drive;
