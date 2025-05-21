@@ -367,6 +367,8 @@ static int dos_glob(const uint8_t *n, const char *g)
 #ifdef LFN_SUPPORT
 static int lfn_glob(const uint8_t *n, const char *g)
 {
+    if(!strcmp(g, "*"))
+        g = "*.*";
     int in_dbcs_g = 0;
     int in_dbcs_n = 0;
     const uint8_t *n_last_dot = get_last_dot(n);
