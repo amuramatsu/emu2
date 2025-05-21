@@ -264,15 +264,18 @@ static inline uint8_t *getptr(uint32_t addr, unsigned size)
 
 // Get a copy of CPU memory forcing a nul byte at end.
 // Four static buffers are used, so at most 4 results can be in use.
+#ifndef GETSTR_BUF_SIZE
+#define GETSTR_BUF_SIZE 256
+#endif
 static inline char *getstr(uint32_t addr, unsigned size)
 {
     static int cbuf = 0;
-    static char buf[4][256];
+    static char buf[4][GETSTR_BUF_SIZE];
 
     cbuf = (cbuf + 1) & 3;
-    memset(buf[cbuf], 0, 256);
+    memset(buf[cbuf], 0, GETSTR_BUF_SIZE);
 #ifdef EMS_SUPPORT
-    if(size < 255 && in_ems_pageframe(addr))
+    if(size < GETSTR_BUF_SIZE && in_ems_pageframe(addr))
     {
         int i;
         char *p = buf[cbuf];
@@ -283,7 +286,7 @@ static inline char *getstr(uint32_t addr, unsigned size)
     }
     else
 #endif
-        if(size < 255 && !check_limit(addr, size))
+        if(size < GETSTR_BUF_SIZE && !check_limit(addr, size))
     {
 #ifdef IA32
         meml_reads(addr, buf[cbuf], size);
@@ -293,5 +296,6 @@ static inline char *getstr(uint32_t addr, unsigned size)
     }
     return buf[cbuf];
 }
+#undef GETSTR_BUF_SIZE
 
 #endif // EMU_H

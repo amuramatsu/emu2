@@ -51,6 +51,8 @@ NORETURN void print_usage(void)
            "                      - bit3: A20 gate enabled by default.\n"
            "  %-18s  Specifies a DOS append paths, separated by ';'.\n"
            "  %-18s  Set version of DOS to emulate, e.g. '2.11', '3.20', etc.\n"
+           "  %-18s  Set version of Windows to emulate, e.g. '3.0',\n"
+           "                      '4.0'(Win95), etc.\n"
            "  %-18s  Setup text mode with given number of rows, from 12 to 50.\n"
 #ifdef IA32
            "  %-18s  Whole memory size[MB], power of 2 up to 1024, default 64.\n"
@@ -64,7 +66,7 @@ NORETURN void print_usage(void)
            "  %-18s  Exec child process in same emulator process.\n",
            prog_name, ENV_DBG_NAME, ENV_DBG_OPT, ENV_PROGNAME, ENV_DEF_DRIVE, ENV_CWD,
            ENV_DRIVE "n", ENV_CODEPAGE, ENV_LOWMEM, ENV_MEMFLAG, ENV_LOWMEM, ENV_APPEND,
-           ENV_DOSVER, ENV_ROWS, ENV_MEMSIZE,
+           ENV_DOSVER, ENV_WINVER, ENV_ROWS, ENV_MEMSIZE,
 #ifdef EMS_SUPPORT
            ENV_EMSMEM,
 #endif
