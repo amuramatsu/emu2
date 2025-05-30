@@ -703,14 +703,28 @@ static char *dos_unix_name(const char *path, const char *dosN, int force, int lf
         else if(*s == '?' || *s == '*')
             return ret;
     }
+    char *orig_ret = lfn ? strdup(ret) : 0;
     // Try converting to uppercase...
     str_ucase(ret + strlen(bpath));
     if(0 == stat(ret, &st))
+    {
+        if(orig_ret)
+            free(orig_ret);
         return ret;
+    }
     // Try converting to lowercase...
     str_lcase(ret + strlen(bpath));
     if(0 == stat(ret, &st))
+    {
+        if(orig_ret)
+            free(orig_ret);
         return ret;
+    }
+    if(orig_ret)
+    {
+        free(ret);
+        ret = orig_ret;
+    }
     // Finally, do a full directory search
     struct dos_file_list *dl = dos_read_dir(bpath, dosN, 0, 1, lfn);
     if(!dl || !dl->unixname)
