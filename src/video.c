@@ -63,6 +63,8 @@ enum vram_cell_type
 };
 static enum vram_cell_type vram_cell_type[0x2000];
 static int video_putchar_cont = 0;
+// CGA extended mode flag for DOS/V
+static int cga_extended_mode = 0;
 
 // Forward
 static void term_goto_xy(unsigned x, unsigned y);
@@ -798,6 +800,62 @@ static void video_putchar(uint8_t ch, uint16_t at, int page)
     update_posxy();
 }
 
+static void video_putchar_nocmd(uint8_t ch, uint16_t at, int page)
+{
+    static int in_dbcs = 0;
+    if(vid_posy[page] >= vid_sy)
+    {
+        in_dbcs = 0;
+        return;
+    }
+    page = page & 7;
+    if(ch < 0x20)
+        in_dbcs = 0;
+
+    enum vram_cell_type type = VRAM_CELL_SBCS;
+    if(in_dbcs)
+    {
+        in_dbcs = 0;
+        type = VRAM_CELL_DBCS_2ND;
+    }
+    else
+    {
+        int lastx = vid_posx[page] >= vid_sx - 1;
+        if(!lastx && get_xy_type(vid_posx[page], vid_posy[page]) == VRAM_CELL_DBCS_1ST)
+        {
+            set_xy_char(vid_posx[page] + 1, vid_posy[page], 0x20, page);
+            set_xy_type(vid_posx[page] + 1, vid_posy[page], VRAM_CELL_SBCS);
+        }
+        if(!video_putchar_cont && vid_posx[page] > 0 &&
+           get_xy_type(vid_posx[page], vid_posy[page]) == VRAM_CELL_DBCS_2ND)
+        {
+            set_xy_char(vid_posx[page] - 1, vid_posy[page], 0x20, page);
+            set_xy_type(vid_posx[page] - 1, vid_posy[page], VRAM_CELL_SBCS);
+        }
+        if(check_dbcs_1st(ch))
+        {
+            if(lastx)
+                video_putchar(0x20, at, page);
+            type = VRAM_CELL_DBCS_1ST;
+            in_dbcs = 1;
+        }
+    }
+    if(at & 0xFF00)
+        set_xy_char(vid_posx[page], vid_posy[page], ch, page);
+    else
+        set_xy_full(vid_posx[page], vid_posy[page], ch, at, page);
+    set_xy_type(vid_posx[page] + 1, vid_posy[page], type);
+    vid_posx[page]++;
+    if(vid_posx[page] >= vid_sx)
+    {
+        vid_posx[page] = 0;
+        vid_posy[page]++;
+        video_putchar_cont = 0;
+    }
+    else
+        video_putchar_cont = 1;
+}
+
 void video_putch(char ch)
 {
     if(!video_initialized)
@@ -824,6 +882,12 @@ void intr10(void)
     switch(ax >> 8)
     {
     case 0x00: // SET VIDEO MODE
+        cga_extended_mode = 0;
+        if((ax & 0x7F) == 0x73)
+        {
+            ax = 0x03 | (ax & 0x80);
+            cga_extended_mode = 1;
+        }
         if((ax & 0x7F) > 3)
             debug(debug_video, "-> SET GRAPHICS MODE %x<-\n", ax & 0xFF);
         else
@@ -1028,7 +1092,44 @@ void intr10(void)
         int save_posy = vid_posy[page];
         int addr = cpuGetAddrES(cpuGetBP());
         int cnt = cpuGetCX();
-        if(ax & 2)
+        if((ax & 0xF0) == 0x10)
+        {
+            unsigned x = vid_posx[page], y = vid_posy[page];
+            int ext = cga_extended_mode && (ax & 0x01);
+            while(cnt && y < vid_sy)
+            {
+                put16(addr, get_xy_topview(x, y));
+                addr += 2;
+                if(ext)
+                {
+                    put16(addr, 0);
+                    addr += 2;
+                }
+                x++;
+                if(x >= vid_sy)
+                {
+                    x = 0;
+                    y++;
+                }
+                cnt--;
+            }
+            ax = 1; // save cursor pos
+        }
+        else if((ax & 0xF0) == 0x20)
+        {
+            int ext = cga_extended_mode && (ax & 0x01);
+            while(cnt && addr < 0xFFFFF)
+            {
+                video_putchar_nocmd(get8(addr), get8(addr + 1), page);
+                if(ext)
+                    addr += 4;
+                else
+                    addr += 2;
+                cnt--;
+            }
+            ax = 1; // save cursor pos
+        }
+        else if(ax & 2)
         {
             while(cnt && addr < 0xFFFFF)
             {
