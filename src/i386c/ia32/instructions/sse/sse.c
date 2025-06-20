@@ -839,7 +839,7 @@ void SSE_MOVMSKPS(void)
 	UINT32 op;
 	UINT idx, sub;
 	UINT32 *data1;
-	UINT32 *data2;
+	UINT32 *data2 = NULL;
 
 	SSE_check_NM_EXCEPTION();
 	SSE_setTag();
@@ -1123,7 +1123,7 @@ void SSE_PEXTRW(void)
 	UINT32 op;
 	UINT idx, sub;
 	UINT32 *data1;
-	UINT16 *data2;
+	UINT16 *data2 = NULL;
 
 	SSE_check_NM_EXCEPTION();
 	SSE_setTag();
@@ -1214,7 +1214,7 @@ void SSE_PMOVMSKB(void)
 	UINT32 op;
 	UINT idx, sub;
 	UINT32 *data1;
-	UINT8 *data2;
+	UINT8 *data2 = NULL;
 
 	SSE_check_NM_EXCEPTION();
 	SSE_setTag();

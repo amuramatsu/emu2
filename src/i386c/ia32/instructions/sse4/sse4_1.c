@@ -28,7 +28,7 @@
 #include <math.h>
 #include <float.h>
 
-#define isnan(x) (_isnan(x))
+//#define isnan(x) (_isnan(x))
 
 #include "../../cpu.h"
 #include "../../ia32.mcr"
@@ -961,7 +961,7 @@ void SSE4_1_MPSADBW(void)
 		tmpsinedcalc += abs(tmpsinedcalcb[i+1]-data2[(op & 3) * 4 + 1]);
 		tmpsinedcalc += abs(tmpsinedcalcb[i+2]-data2[(op & 3) * 4 + 2]);
 		tmpsinedcalc += abs(tmpsinedcalcb[i+3]-data2[(op & 3) * 4 + 3]);
-		*((UINT16*)(data1[2 * i])) = tmpsinedcalc;
+		*((UINT16*)(&data1[2 * i])) = tmpsinedcalc;
 	}
 	TRACEOUT(("SSE4_1_MPSADBW"));
 }

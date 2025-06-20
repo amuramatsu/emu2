@@ -50,9 +50,9 @@ static void trace_fmt_ex(const char *fmt, ...)
 #include <math.h>
 #include <float.h>
 
-#if defined(_WIN32) && !defined(__LIBRETRO__)
-#define isnan(x) (_isnan(x))
-#endif
+//#if defined(_WIN32) && !defined(__LIBRETRO__)
+//#define isnan(x) (_isnan(x))
+//#endif
 
 #include <ia32/cpu.h>
 #include "ia32/ia32.mcr"
@@ -841,7 +841,7 @@ void SSE2_MOVMSKPD(void)
 	UINT32 op;
 	UINT idx, sub;
 	UINT32 *data1;
-	UINT32 *data2;
+	UINT32 *data2 = NULL;
 
 	SSE2_check_NM_EXCEPTION();
 	SSE2_setTag();
@@ -1639,7 +1639,7 @@ void SSE2_PEXTRW(void)
 	UINT32 op;
 	UINT idx, sub;
 	UINT32 *data1;
-	UINT16 *data2;
+	UINT16 *data2 = NULL;
 
 	SSE2_check_NM_EXCEPTION();
 	SSE2_setTag();
@@ -1756,7 +1756,7 @@ void SSE2_PMOVMSKB(void)
 	UINT32 op;
 	UINT idx, sub;
 	UINT32 *data1;
-	UINT8 *data2;
+	UINT8 *data2 = NULL;
 
 	SSE2_check_NM_EXCEPTION();
 	SSE2_setTag();

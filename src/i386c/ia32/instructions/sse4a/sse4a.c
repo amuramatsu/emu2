@@ -30,7 +30,7 @@
 #include <math.h>
 #include <float.h>
 
-#define isnan(x) (_isnan(x))
+//#define isnan(x) (_isnan(x))
 
 #include "../../cpu.h"
 #include "../../ia32.mcr"
