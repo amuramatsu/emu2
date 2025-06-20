@@ -77,8 +77,8 @@ exec_1step(void)
 #endif
 
 #if defined(IA32_INSTRUCTION_TRACE)
-	ctx[ctx_index].regs = CPU_STATSAVE.cpu_regs;
 	if (cpu_inst_trace) {
+		ctx[ctx_index].regs = CPU_STATSAVE.cpu_regs;
 		disasm_context_t *d = &ctx[ctx_index].disasm;
 		UINT32 eip = CPU_EIP;
 		int rv;
@@ -113,15 +113,17 @@ exec_1step(void)
 				VERBOSE(("             : %s", buf));
 			}
 		}
+		ctx[ctx_index].opbytes = 0;
 	}
-	ctx[ctx_index].opbytes = 0;
 #endif
 
 	for (prefix = 0; prefix < MAX_PREFIX; prefix++) {
 		GET_PCBYTE(op);
 #if defined(IA32_INSTRUCTION_TRACE)
-		ctx[ctx_index].op[prefix] = op;
-		ctx[ctx_index].opbytes++;
+		if (cpu_inst_trace) {
+			ctx[ctx_index].op[prefix] = op;
+			ctx[ctx_index].opbytes++;
+		}
 #endif
 
 		/* prefix */
@@ -136,13 +138,15 @@ exec_1step(void)
 	}
 
 #if defined(IA32_INSTRUCTION_TRACE)
-	if (op == 0x0f) {
-		BYTE op2;
-		op2 = cpu_codefetch(CPU_EIP);
-		ctx[ctx_index].op[prefix + 1] = op2;
-		ctx[ctx_index].opbytes++;
+	if (cpu_inst_trace) {
+		if (op == 0x0f) {
+			BYTE op2;
+			op2 = cpu_codefetch(CPU_EIP);
+			ctx[ctx_index].op[prefix + 1] = op2;
+			ctx[ctx_index].opbytes++;
+		}
+		ctx_index = (ctx_index + 1) % NELEMENTS(ctx);
 	}
-	ctx_index = (ctx_index + 1) % NELEMENTS(ctx);
 #endif
 	
 	/* normal / rep, but not use */
@@ -280,8 +284,8 @@ exec_allstep(void)
 #endif
 
 #if defined(IA32_INSTRUCTION_TRACE)
-		ctx[ctx_index].regs = CPU_STATSAVE.cpu_regs;
 		if (cpu_inst_trace) {
+			ctx[ctx_index].regs = CPU_STATSAVE.cpu_regs;
 			disasm_context_t *d = &ctx[ctx_index].disasm;
 			UINT32 eip = CPU_EIP;
 			int rv;
@@ -316,8 +320,8 @@ exec_allstep(void)
 					VERBOSE(("             : %s", buf));
 				}
 			}
+			ctx[ctx_index].opbytes = 0;
 		}
-		ctx[ctx_index].opbytes = 0;
 #endif
 
 		for (prefix = 0; prefix < MAX_PREFIX; prefix++)
@@ -345,8 +349,10 @@ exec_allstep(void)
 				GET_PCBYTE(op);
 			}
 #if defined(IA32_INSTRUCTION_TRACE)
-			ctx[ctx_index].op[prefix] = op;
-			ctx[ctx_index].opbytes++;
+			if (cpu_inst_trace) {
+				ctx[ctx_index].op[prefix] = op;
+				ctx[ctx_index].opbytes++;
+			}
 #endif
 
 			/* prefix */
@@ -395,13 +401,15 @@ exec_allstep(void)
 		}
 
 #if defined(IA32_INSTRUCTION_TRACE)
-		if (op == 0x0f) {
-			BYTE op2;
-			op2 = cpu_codefetch(CPU_EIP);
-			ctx[ctx_index].op[prefix + 1] = op2;
-			ctx[ctx_index].opbytes++;
+		if (cpu_inst_trace) {
+			if (op == 0x0f) {
+				BYTE op2;
+				op2 = cpu_codefetch(CPU_EIP);
+				ctx[ctx_index].op[prefix + 1] = op2;
+				ctx[ctx_index].opbytes++;
+			}
+			ctx_index = (ctx_index + 1) % NELEMENTS(ctx);
 		}
-		ctx_index = (ctx_index + 1) % NELEMENTS(ctx);
 #endif
 	
 		/* normal / rep, but not use */

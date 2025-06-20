@@ -1,7 +1,13 @@
 SHELL=/bin/sh
 AR?=ar
 CFLAGS?=-O3 -I. -DEMS_SUPPORT
-CFLAGS_IA32=-DIA32_INSTRUCTION_TRACE -Wno-unused-value -Wno-unused-variable -Wno-unused-but-set-variable -Wno-unused-function -Wno-unused-label -Wno-pointer-sign
+CFLAGS_IA32= \
+	-DIA32_INSTRUCTION_TRACE \
+	-Wno-unused-value -Wno-unused-variable \
+	-Wno-unused-but-set-variable -Wno-unused-function \
+	-Wno-unused-label -Wno-pointer-sign \
+	-DUSE_CPU_MODRMPREFETCH -DUSE_CPU_PLATFORMINT \
+	-DUSE_CPU_INLINEINST -DUSE_CPU_DIRECTREG -DUSE_CPU_EIPMASK
 
 include ../../platform.mk
 
