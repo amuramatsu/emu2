@@ -23,15 +23,12 @@
  * THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
+#ifndef DEBUG_VERBOSE
+#define DEBUG_VERBOSE 1
+#endif
 #include <compiler.h>
 #include "cpu.h"
 #include "ia32.mcr"
-
-void emu2_cpu_debugout(const char *, ...);
-#ifdef VERBOSE
-#undef VERBOSE
-#define VERBOSE(s) emu2_cpu_debugout s
-#endif
 
 //#include <pccore.h>
 //#include <io/iocore.h>

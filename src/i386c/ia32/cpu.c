@@ -35,12 +35,11 @@
 #endif
 
 sigjmp_buf exec_1step_jmpbuf;
-
 void emu2_cpu_debugout(const char *, ...);
 #ifdef VERBOSE
 #undef VERBOSE
-#define VERBOSE(s) emu2_cpu_debugout s
 #endif
+#define VERBOSE(s) emu2_cpu_debugout s
 #if defined(IA32_INSTRUCTION_TRACE)
 typedef struct {
 	CPU_REGS		regs;

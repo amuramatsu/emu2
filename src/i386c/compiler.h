@@ -67,7 +67,9 @@ typedef int BOOL;
 
 #ifdef DEBUG_VERBOSE
 void emu2_cpu_debugout(const char *, ...);
-#define VERBOSE(s) emu2_cpu_debugout s
+void emu2_int_debugout(const char *, ...);
+void emu2_cpu_int_debugout(const char *, ...);
+#define VERBOSE(s) emu2_cpu_int_debugout s
 #else
 #define VERBOSE(s)
 #endif
