@@ -23,15 +23,12 @@
  * THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
+#ifndef DEBUG_VERBOSE
+#define DEBUG_VERBOSE 1
+#endif
 #include <compiler.h>
 #include "cpu.h"
 #include "ia32.mcr"
-
-void emu2_cpu_debugout(const char *, ...);
-#ifdef VERBOSE
-#undef VERBOSE
-#define VERBOSE(s) emu2_cpu_debugout s
-#endif
 
 //#include <pccore.h>
 //#include <io/iocore.h>
@@ -94,6 +91,14 @@ ia32_initreg(void)
 
 	tlb_init();
 	fpu_initialize();
+
+#if defined(USE_CPU_EIPMASK)
+	CPU_EIPMASK = CPU_STATSAVE.cpu_inst_default.op_32 ? 0xffffffff : 0xffff;
+#endif
+
+#if defined(USE_CPU_MODRMPREFETCH)
+	opCache = 0;
+#endif
 }
 
 void

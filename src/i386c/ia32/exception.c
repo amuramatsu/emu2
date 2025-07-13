@@ -23,19 +23,12 @@
  * THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
+#ifndef DEBUG_VERBOSE
+#define DEBUG_VERBOSE 1
+#endif
 #include <compiler.h>
 #include "cpu.h"
 #include "ia32.mcr"
-
-void emu2_cpu_debugout(const char *, ...);
-void emu2_int_debugout(const char *, ...);
-#ifdef VERBOSE
-#undef VERBOSE
-#define VERBOSE(s) do {  \
-	emu2_cpu_debugout s; \
-	emu2_int_debugout s; \
-	} while (0/*CONSTCOND*/)
-#endif
 
 const char *exception_str[EXCEPTION_NUM] = {
 	"DE_EXCEPTION",

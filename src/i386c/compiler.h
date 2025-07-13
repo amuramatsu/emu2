@@ -37,6 +37,15 @@ typedef int8_t   INT8;
 typedef int16_t  INT16;
 typedef int32_t  INT32;
 typedef int64_t  INT64;
+#ifdef USE_CPU_PLATFORMINT
+typedef uint32_t PF_UINT8;
+typedef uint32_t PF_UINT16;
+typedef uint32_t PF_UINT32;
+#else
+typedef uint8_t PF_UINT8;
+typedef uint16_t PF_UINT16;
+typedef uint32_t PF_UINT32;
+#endif
 
 typedef int BOOL;
 #define TRUE 1
@@ -58,7 +67,9 @@ typedef int BOOL;
 
 #ifdef DEBUG_VERBOSE
 void emu2_cpu_debugout(const char *, ...);
-#define VERBOSE(s) emu2_cpu_debugout s
+void emu2_int_debugout(const char *, ...);
+void emu2_cpu_int_debugout(const char *, ...);
+#define VERBOSE(s) emu2_cpu_int_debugout s
 #else
 #define VERBOSE(s)
 #endif

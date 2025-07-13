@@ -87,6 +87,23 @@ emu2_int_debugout(const char *format, ...)
     debug(debug_int, "%s\n", buf);
 }
 
+void
+emu2_cpu_int_debugout(const char *format, ...)
+{
+    char buf[1024];
+    va_list ap;
+
+    if(!debug_active(debug_cpu) && !debug_active(debug_int))
+        return;
+
+    va_start(ap, format);
+    vsnprintf(buf, sizeof(buf), format, ap);
+    va_end(ap);
+    buf[sizeof(buf)-1] = 0;
+    debug(debug_cpu, "%s\n", buf);
+    debug(debug_int, "%s\n", buf);
+}
+
 extern void IRET(void);
 void
 emu2_hook(void)
@@ -118,7 +135,7 @@ extern volatile int exit_cpu;
 // CPU interface
 void execute(void)
 {
-    CPU_BASECLOCK = 100; // each operation step must be lower than 100 tick
+    CPU_BASECLOCK = 300; // each operation step must be lower than 200 tick
     for(; !exit_cpu;) {
         CPU_REMCLOCK = CPU_BASECLOCK;
         if (CPU_EFLAG & I_FLAG)
@@ -127,11 +144,15 @@ void execute(void)
     }
 }
 
+#ifdef IA32_INSTRUCTION_TRACE
 extern int cpu_inst_trace;
+#endif
 void init_cpu(void)
 {
+#ifdef IA32_INSTRUCTION_TRACE
     if(debug_active(debug_cpu))
         cpu_inst_trace = 1;
+#endif
     i386c_initialize();
     fpu_initialize();
     ia32reset();
