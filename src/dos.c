@@ -3841,8 +3841,8 @@ int intr21(void)
         cpuSetBX(get_current_PSP());
         break;
     case 0x63: // GET DOUBLE BYTE CHARACTER SET LEAD-BYTE TABLE
-        cpuSetSI(nls_dbc_set_table & 0xF);
-        cpuSetDS(nls_dbc_set_table >> 4);
+        cpuSetSI((nls_dbc_set_table + 2) & 0xF);
+        cpuSetDS((nls_dbc_set_table + 2) >> 4);
         cpuSetAX(cpuGetAX() & 0xFF00);
         cpuClrFlag(cpuFlag_CF);
         break;
@@ -4177,13 +4177,17 @@ static void init_nls_data(void)
         if(cp_dbcs[dbcs_num * 2] == 0 && cp_dbcs[dbcs_num * 2 + 1] == 0)
             break;
     }
-    nls_dbc_set_table = get_static_memory(dbcs_num * 2 + 2, 0);
+    nls_dbc_set_table = get_static_memory(dbcs_num * 2 + 4, 0);
+    if(dbcs_num == 0)
+        put16(nls_dbc_set_table, 0);
+    else
+        put16(nls_dbc_set_table, dbcs_num * 2 + 2);
     for(int i = 0; i < dbcs_num; i++)
     {
-        put8(nls_dbc_set_table + i * 2, cp_dbcs[i * 2]);
-        put8(nls_dbc_set_table + i * 2 + 1, cp_dbcs[i * 2 + 1]);
+        put8(nls_dbc_set_table + 2 + i * 2, cp_dbcs[i * 2]);
+        put8(nls_dbc_set_table + 2 + i * 2 + 1, cp_dbcs[i * 2 + 1]);
     }
-    put16(nls_dbc_set_table + dbcs_num * 2, 0);
+    put16(nls_dbc_set_table + 2 + dbcs_num * 2, 0);
 }
 
 void install_dummy_handler(int inum)
