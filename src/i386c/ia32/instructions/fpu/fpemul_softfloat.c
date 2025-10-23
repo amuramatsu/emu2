@@ -382,19 +382,43 @@ static void FPU_FST_F80(UINT32 addr) {
 
 static void FPU_FST_I16(UINT32 addr) {
 	softfloat_exceptionFlags = exception_x87_to_softfloat(FPU_STATUSWORD);
-	fpu_memorywrite_w(addr, (UINT16)((SINT16)extF80M_to_i32_r_minMag(&FPU_STAT.reg[FPU_STAT_TOP].d, false)));
+	sw_extFloat80_t fx80 = extF80_roundToInt(FPU_STAT.reg[FPU_STAT_TOP].d, softfloat_roundingMode, false);
+	sw_extFloat80_t lowerLim = i32_to_extF80(-32768);
+	sw_extFloat80_t upperLim = i32_to_extF80(32767);
+	if (!extF80_lt(fx80, lowerLim) && extF80_le(fx80, upperLim)) {
+		fpu_memorywrite_w(addr, (UINT16)((SINT16)extF80_to_i32(fx80, softfloat_roundingMode, false)));
+	} else {
+		fpu_memorywrite_w(addr, (UINT16)((SINT16)-32768));
+		softfloat_exceptionFlags = softfloat_flag_invalid;
+	}
 	FPU_STATUSWORD |= exception_softfloat_to_x87(softfloat_exceptionFlags);
 }
 
 static void FPU_FST_I32(UINT32 addr) {
 	softfloat_exceptionFlags = exception_x87_to_softfloat(FPU_STATUSWORD);
-	fpu_memorywrite_d(addr, (UINT32)extF80M_to_i32_r_minMag(&FPU_STAT.reg[FPU_STAT_TOP].d, false));
+	sw_extFloat80_t fx80 = extF80_roundToInt(FPU_STAT.reg[FPU_STAT_TOP].d, softfloat_roundingMode, false);
+	sw_extFloat80_t lowerLim = i32_to_extF80(0x80000000);
+	sw_extFloat80_t upperLim = i32_to_extF80(0x7fffffff);
+	if (!extF80_lt(fx80, lowerLim) && extF80_le(fx80, upperLim)) {
+		fpu_memorywrite_d(addr, (UINT32)extF80_to_i32(fx80, softfloat_roundingMode, false));
+	} else {
+		fpu_memorywrite_d(addr, (UINT32)0x80000000);
+		softfloat_exceptionFlags = softfloat_flag_invalid;
+	}
 	FPU_STATUSWORD |= exception_softfloat_to_x87(softfloat_exceptionFlags);
 }
 
 static void FPU_FST_I64(UINT32 addr) {
 	softfloat_exceptionFlags = exception_x87_to_softfloat(FPU_STATUSWORD);
-	fpu_memorywrite_q(addr, (UINT64)extF80M_to_i64_r_minMag(&FPU_STAT.reg[FPU_STAT_TOP].d, false));
+	sw_extFloat80_t fx80 = extF80_roundToInt(FPU_STAT.reg[FPU_STAT_TOP].d, softfloat_roundingMode, false);
+	sw_extFloat80_t lowerLim = i64_to_extF80((UINT64)0x8000000000000000);
+	sw_extFloat80_t upperLim = i64_to_extF80((UINT64)0x7fffffffffffffff);
+	if (!extF80_lt(fx80, lowerLim) && extF80_le(fx80, upperLim)) {
+		fpu_memorywrite_q(addr, (UINT64)extF80_to_i64(fx80, softfloat_roundingMode, false));
+	} else {
+		fpu_memorywrite_q(addr, (UINT64)0x8000000000000000);
+		softfloat_exceptionFlags = softfloat_flag_invalid;
+	}
 	FPU_STATUSWORD |= exception_softfloat_to_x87(softfloat_exceptionFlags);
 }
 
