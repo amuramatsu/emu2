@@ -851,6 +851,37 @@ static void update_dos_sft(int sidx, const struct stat *st)
 #endif
 }
 
+static void append_random_name(uint32_t addr)
+{
+    static const char chrs[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+    static int rand_initailzed = 0;
+    int i = 0;
+    if(!rand_initailzed)
+    {
+        struct timeval tv;
+        gettimeofday(&tv, 0);
+        srand((unsigned int)(tv.tv_sec * (tv.tv_usec + 1)));
+        rand_initailzed = 1;
+    }
+        
+    for(; i < 8; i++)
+    {
+        int n = rand() / ((double)RAND_MAX + 1.0) * sizeof(chrs);
+        if(n >= sizeof(chrs))
+            n = sizeof(chrs) - 1;
+        put8(addr + i, chrs[n]);
+    }
+    put8(addr + i++, '.');
+    for(; i < 8 + 1 + 3; i++)
+    {
+        int n = rand() / ((double)RAND_MAX + 1.0) * sizeof(chrs);
+        if(n >= sizeof(chrs))
+            n = sizeof(chrs) - 1;
+        put8(addr + i, chrs[n]);
+    }
+    put8(addr + i, '\0');
+}
+
 // DOS int 21, ah=43
 static void intr21_43(int lfn)
 {
@@ -3761,6 +3792,29 @@ int intr21(void)
     case 0x59: // GET EXTENDED ERROR
         cpuSetAX(dos_error);
         break;
+    case 0x5A: // CREATE TEMPORARY FILE
+    {
+        uint32_t path_addr = cpuGetAddrDS(cpuGetDX());
+        for(int i = 0; i < 128 && get8(path_addr) != 0; i++, path_addr++)
+            ;
+        if(get8(path_addr) != 0 || get8(path_addr - 1) != '\\')
+        {
+            dos_error = 3;
+            cpuSetAX(dos_error);
+            break;
+        }
+        while(1)
+        {
+            append_random_name(path_addr);
+            char *tmpname = dos_unix_path(cpuGetAddrDS(cpuGetDX()), 1, 0, 0);
+            debug(debug_dos, "\ttmpfile '%s' ", tmpname);
+            struct stat s;
+            if(stat(tmpname, &s) < 0)
+                break;
+        }
+        dos_open_file(2, cpuGetCX() & 0xFF, cpuGetAddrDS(cpuGetDX()), 0);
+        break;
+    }
     case 0x5B: // CREATE NEW FILE
         dos_open_file(2, cpuGetAX() & 0xFF, cpuGetAddrDS(cpuGetDX()), 0);
         break;
