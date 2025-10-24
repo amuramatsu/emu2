@@ -748,7 +748,8 @@ static void i_aaa(void)
     uint16_t ax = wregs[AX];
     if(AF || (ax & 0xF) > 9)
     {
-        ax = ((ax + 0x100) & 0xFF00) | ((ax + 6) & 0x0F);
+        ax += 6;
+        ax = ((ax + 0x100) & 0xFF00) + (ax & 0x00FF);
         AF = 1;
         CF = 1;
     }
@@ -756,8 +757,8 @@ static void i_aaa(void)
     {
         AF = 0;
         CF = 0;
-        ax = ax & 0xFF0F;
     }
+    ax = ax & 0xFF0F;
     SetZFB(ax);
     SetPF(ax);
     SetSFB(ax);
@@ -1702,10 +1703,12 @@ static void i_aam(void)
     {
         unsigned al = wregs[AX] & 0xFF;
         wregs[AX] = ((al % mult) & 0xFF) | ((al / mult) << 8);
+        al = wregs[AX] & 0xFF;
 
+        AF = 0;
         SetPF(al);
-        SetZFW(wregs[AX]);
-        SetSFW(wregs[AX]);
+        SetZFB(al);
+        SetSFB(al);
     }
 }
 
