@@ -613,12 +613,17 @@ do { \
 #define	_WORD_SHLD(d, s, c) \
 do { \
 	(c) &= 0x1f; \
-	if (((c)) && ((c) < 16)) { \
+	/* c >= 16 is undefined, but real i386 working with c == 16 */ \
+	if ((c)) { \
 		CPU_OV = 0; \
 		if ((c) == 1) { \
 			CPU_OV = ((d) ^ ((d) << 1)) & 0x8000; \
 		} \
-		CPU_FLAGL = (UINT8)(((d) >> (16 - (c))) & 1); /*C_FLAG*/\
+		if ((c) <= 16) { \
+			CPU_FLAGL = (UINT8)(((d) >> (16 - (c))) & 1); /*C_FLAG*/\
+		} else { \
+			CPU_FLAGL = 0; /*C_FLAG*/\
+		} \
 		(d) = ((d) << 16) | (s); \
 		(d) <<= (c); \
 		(d) >>= 16; \
