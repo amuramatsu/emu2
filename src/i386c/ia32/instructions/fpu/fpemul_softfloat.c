@@ -225,6 +225,37 @@ static INLINE int extF80M_isInf(const sw_extFloat80_t *Value)
 	return 0;
 }
 
+static INLINE int extF80M_isNaN(const sw_extFloat80_t *Value)
+{
+	const struct extFloat80M *s;
+	UINT16 ui64;
+	UINT64 ui0;
+	INT32 exp;
+
+	s = (const struct extFloat80M *)Value;
+	ui64 = s->signExp;
+	exp = ui64 & 0x7FFF;
+	ui0 = s->signif;
+	if (exp == 0x7FFF) {
+		if (ui0 & 0x7FFFFFFFFFFFFFFFUL)
+			return 1;
+		return 0;
+	}
+	return 0;
+}
+
+static INLINE int extF80M_isNeg(const sw_extFloat80_t *Value)
+{
+	const struct extFloat80M *s;
+	UINT16 ui64;
+
+	s = (const struct extFloat80M *)Value;
+	ui64 = s->signExp;
+	if (ui64 & 0x8000)
+		return 1;
+	return 0;
+}
+
 static INLINE void FPU_SetCW(UINT16 cword)
 {
 	FPU_CTRLWORD = cword & 0x7FFF;
@@ -382,19 +413,43 @@ static void FPU_FST_F80(UINT32 addr) {
 
 static void FPU_FST_I16(UINT32 addr) {
 	softfloat_exceptionFlags = exception_x87_to_softfloat(FPU_STATUSWORD);
-	fpu_memorywrite_w(addr, (UINT16)((SINT16)extF80M_to_i32_r_minMag(&FPU_STAT.reg[FPU_STAT_TOP].d, false)));
+	sw_extFloat80_t fx80 = extF80_roundToInt(FPU_STAT.reg[FPU_STAT_TOP].d, softfloat_roundingMode, false);
+	sw_extFloat80_t lowerLim = i32_to_extF80(-32768);
+	sw_extFloat80_t upperLim = i32_to_extF80(32767);
+	if (!extF80_lt(fx80, lowerLim) && extF80_le(fx80, upperLim)) {
+		fpu_memorywrite_w(addr, (UINT16)((SINT16)extF80_to_i32(fx80, softfloat_roundingMode, false)));
+	} else {
+		fpu_memorywrite_w(addr, (UINT16)((SINT16)-32768));
+		softfloat_exceptionFlags = softfloat_flag_invalid;
+	}
 	FPU_STATUSWORD |= exception_softfloat_to_x87(softfloat_exceptionFlags);
 }
 
 static void FPU_FST_I32(UINT32 addr) {
 	softfloat_exceptionFlags = exception_x87_to_softfloat(FPU_STATUSWORD);
-	fpu_memorywrite_d(addr, (UINT32)extF80M_to_i32_r_minMag(&FPU_STAT.reg[FPU_STAT_TOP].d, false));
+	sw_extFloat80_t fx80 = extF80_roundToInt(FPU_STAT.reg[FPU_STAT_TOP].d, softfloat_roundingMode, false);
+	sw_extFloat80_t lowerLim = i32_to_extF80(0x80000000);
+	sw_extFloat80_t upperLim = i32_to_extF80(0x7fffffff);
+	if (!extF80_lt(fx80, lowerLim) && extF80_le(fx80, upperLim)) {
+		fpu_memorywrite_d(addr, (UINT32)extF80_to_i32(fx80, softfloat_roundingMode, false));
+	} else {
+		fpu_memorywrite_d(addr, (UINT32)0x80000000);
+		softfloat_exceptionFlags = softfloat_flag_invalid;
+	}
 	FPU_STATUSWORD |= exception_softfloat_to_x87(softfloat_exceptionFlags);
 }
 
 static void FPU_FST_I64(UINT32 addr) {
 	softfloat_exceptionFlags = exception_x87_to_softfloat(FPU_STATUSWORD);
-	fpu_memorywrite_q(addr, (UINT64)extF80M_to_i64_r_minMag(&FPU_STAT.reg[FPU_STAT_TOP].d, false));
+	sw_extFloat80_t fx80 = extF80_roundToInt(FPU_STAT.reg[FPU_STAT_TOP].d, softfloat_roundingMode, false);
+	sw_extFloat80_t lowerLim = i64_to_extF80((UINT64)0x8000000000000000);
+	sw_extFloat80_t upperLim = i64_to_extF80((UINT64)0x7fffffffffffffff);
+	if (!extF80_lt(fx80, lowerLim) && extF80_le(fx80, upperLim)) {
+		fpu_memorywrite_q(addr, (UINT64)extF80_to_i64(fx80, softfloat_roundingMode, false));
+	} else {
+		fpu_memorywrite_q(addr, (UINT64)0x8000000000000000);
+		softfloat_exceptionFlags = softfloat_flag_invalid;
+	}
 	FPU_STATUSWORD |= exception_softfloat_to_x87(softfloat_exceptionFlags);
 }
 
@@ -839,7 +894,7 @@ static void FPU_FCOM(UINT st, UINT other) {
 	FPU_STATUSWORD &= ~(FP_C0_FLAG | FP_C2_FLAG | FP_C3_FLAG);
 	if (((FPU_STAT.tag[st] != TAG_Valid) && (FPU_STAT.tag[st] != TAG_Zero)) ||
 		((FPU_STAT.tag[other] != TAG_Valid) && (FPU_STAT.tag[other] != TAG_Zero)) ||
-		(extF80M_isSignalingNaN(&FPU_STAT.reg[st].d) || extF80M_isSignalingNaN(&FPU_STAT.reg[other].d))) {
+		(extF80M_isNaN(&FPU_STAT.reg[st].d) || extF80M_isNaN(&FPU_STAT.reg[other].d))) {
 		FPU_STATUSWORD |= FP_C3_FLAG|FP_C2_FLAG|FP_C0_FLAG;
 	}
 	else if (extF80M_eq(&FPU_STAT.reg[st].d, &FPU_STAT.reg[other].d)) {
@@ -853,7 +908,7 @@ static void FPU_FCOMI(UINT st, UINT other) {
 	CPU_FLAGL &= ~(Z_FLAG|P_FLAG|C_FLAG);
 	if (((FPU_STAT.tag[st] != TAG_Valid) && (FPU_STAT.tag[st] != TAG_Zero)) ||
 		((FPU_STAT.tag[other] != TAG_Valid) && (FPU_STAT.tag[other] != TAG_Zero)) ||
-		(extF80M_isSignalingNaN(&FPU_STAT.reg[st].d) || extF80M_isSignalingNaN(&FPU_STAT.reg[other].d))) {
+		(extF80M_isNaN(&FPU_STAT.reg[st].d) || extF80M_isNaN(&FPU_STAT.reg[other].d))) {
 		CPU_FLAGL |= Z_FLAG|P_FLAG|C_FLAG;
 	}
 	else if (extF80M_eq(&FPU_STAT.reg[st].d, &FPU_STAT.reg[other].d)) {
@@ -932,7 +987,7 @@ static void FPU_FCMOVNU(UINT st, UINT other) {
 // 浮動小数点数操作
 static void FPU_FXAM(void) {
 	FPU_STATUSWORD &= ~(FP_C0_FLAG | FP_C1_FLAG | FP_C2_FLAG | FP_C3_FLAG);
-	if (extF80_lt(FPU_STAT.reg[FPU_STAT_TOP].d, i64_to_extF80(0))) {
+	if (extF80M_isNeg(&FPU_STAT.reg[FPU_STAT_TOP].d)) {
 		FPU_STATUSWORD |= FP_C1_FLAG;
 	}
 
@@ -940,7 +995,7 @@ static void FPU_FXAM(void) {
 		FPU_STATUSWORD |= FP_C3_FLAG;
 		FPU_STATUSWORD |= FP_C0_FLAG;
 	}
-	else if (extF80M_isSignalingNaN(&FPU_STAT.reg[FPU_STAT_TOP].d)) {
+	else if (extF80M_isNaN(&FPU_STAT.reg[FPU_STAT_TOP].d)) {
 		FPU_STATUSWORD |= FP_C0_FLAG;
 	}
 	else if (extF80M_isInf(&FPU_STAT.reg[FPU_STAT_TOP].d)) {
