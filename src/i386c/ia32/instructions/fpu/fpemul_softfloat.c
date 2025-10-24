@@ -225,6 +225,37 @@ static INLINE int extF80M_isInf(const sw_extFloat80_t *Value)
 	return 0;
 }
 
+static INLINE int extF80M_isNaN(const sw_extFloat80_t *Value)
+{
+	const struct extFloat80M *s;
+	UINT16 ui64;
+	UINT64 ui0;
+	INT32 exp;
+
+	s = (const struct extFloat80M *)Value;
+	ui64 = s->signExp;
+	exp = ui64 & 0x7FFF;
+	ui0 = s->signif;
+	if (exp == 0x7FFF) {
+		if (ui0 & 0x7FFFFFFFFFFFFFFFUL)
+			return 1;
+		return 0;
+	}
+	return 0;
+}
+
+static INLINE int extF80M_isNeg(const sw_extFloat80_t *Value)
+{
+	const struct extFloat80M *s;
+	UINT16 ui64;
+
+	s = (const struct extFloat80M *)Value;
+	ui64 = s->signExp;
+	if (ui64 & 0x8000)
+		return 1;
+	return 0;
+}
+
 static INLINE void FPU_SetCW(UINT16 cword)
 {
 	FPU_CTRLWORD = cword & 0x7FFF;
@@ -863,7 +894,7 @@ static void FPU_FCOM(UINT st, UINT other) {
 	FPU_STATUSWORD &= ~(FP_C0_FLAG | FP_C2_FLAG | FP_C3_FLAG);
 	if (((FPU_STAT.tag[st] != TAG_Valid) && (FPU_STAT.tag[st] != TAG_Zero)) ||
 		((FPU_STAT.tag[other] != TAG_Valid) && (FPU_STAT.tag[other] != TAG_Zero)) ||
-		(extF80M_isSignalingNaN(&FPU_STAT.reg[st].d) || extF80M_isSignalingNaN(&FPU_STAT.reg[other].d))) {
+		(extF80M_isNaN(&FPU_STAT.reg[st].d) || extF80M_isNaN(&FPU_STAT.reg[other].d))) {
 		FPU_STATUSWORD |= FP_C3_FLAG|FP_C2_FLAG|FP_C0_FLAG;
 	}
 	else if (extF80M_eq(&FPU_STAT.reg[st].d, &FPU_STAT.reg[other].d)) {
@@ -877,7 +908,7 @@ static void FPU_FCOMI(UINT st, UINT other) {
 	CPU_FLAGL &= ~(Z_FLAG|P_FLAG|C_FLAG);
 	if (((FPU_STAT.tag[st] != TAG_Valid) && (FPU_STAT.tag[st] != TAG_Zero)) ||
 		((FPU_STAT.tag[other] != TAG_Valid) && (FPU_STAT.tag[other] != TAG_Zero)) ||
-		(extF80M_isSignalingNaN(&FPU_STAT.reg[st].d) || extF80M_isSignalingNaN(&FPU_STAT.reg[other].d))) {
+		(extF80M_isNaN(&FPU_STAT.reg[st].d) || extF80M_isNaN(&FPU_STAT.reg[other].d))) {
 		CPU_FLAGL |= Z_FLAG|P_FLAG|C_FLAG;
 	}
 	else if (extF80M_eq(&FPU_STAT.reg[st].d, &FPU_STAT.reg[other].d)) {
@@ -956,7 +987,7 @@ static void FPU_FCMOVNU(UINT st, UINT other) {
 // 浮動小数点数操作
 static void FPU_FXAM(void) {
 	FPU_STATUSWORD &= ~(FP_C0_FLAG | FP_C1_FLAG | FP_C2_FLAG | FP_C3_FLAG);
-	if (extF80_lt(FPU_STAT.reg[FPU_STAT_TOP].d, i64_to_extF80(0))) {
+	if (extF80M_isNeg(&FPU_STAT.reg[FPU_STAT_TOP].d)) {
 		FPU_STATUSWORD |= FP_C1_FLAG;
 	}
 
@@ -964,7 +995,7 @@ static void FPU_FXAM(void) {
 		FPU_STATUSWORD |= FP_C3_FLAG;
 		FPU_STATUSWORD |= FP_C0_FLAG;
 	}
-	else if (extF80M_isSignalingNaN(&FPU_STAT.reg[FPU_STAT_TOP].d)) {
+	else if (extF80M_isNaN(&FPU_STAT.reg[FPU_STAT_TOP].d)) {
 		FPU_STATUSWORD |= FP_C0_FLAG;
 	}
 	else if (extF80M_isInf(&FPU_STAT.reg[FPU_STAT_TOP].d)) {
