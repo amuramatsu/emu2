@@ -863,7 +863,7 @@ static void append_random_name(uint32_t addr)
         srand((unsigned int)(tv.tv_sec * (tv.tv_usec + 1)));
         rand_initailzed = 1;
     }
-        
+
     for(; i < 8; i++)
     {
         int n = rand() / ((double)RAND_MAX + 1.0) * sizeof(chrs);
@@ -2393,7 +2393,7 @@ int intr21(void)
         put16(stack + 2, cs);
         put16(stack + 4, flags);
         // Call ourselves
-        intr21();
+        ret = intr21();
         // Restore AH
         cpuSetAX((old_ax & 0xFF00) | (cpuGetAX() & 0xFF));
         return ret;
@@ -2545,7 +2545,7 @@ int intr21(void)
         case 0x08:
         case 0x0A:
             cpuSetAX(ax << 8);
-            intr21();
+            ret = intr21();
             decr_indos();
             return ret;
         }
@@ -3489,7 +3489,9 @@ int intr21(void)
             }
 
             // save registers
+            unsigned saveBX = cpuGetBX();
             unsigned saveCX = cpuGetCX();
+            unsigned saveDX = cpuGetDX();
             unsigned saveSI = cpuGetSI();
             unsigned saveDI = cpuGetDI();
             unsigned saveBP = cpuGetBP();
@@ -3541,6 +3543,22 @@ int intr21(void)
 
                 ret = 1; // return by jump
 
+#ifdef EXEC_STACK_ON_EMU
+                saveSP -= 18;
+                cpuSetSP(saveSP);
+                put16(cpuGetAddress(saveSS, saveSP), ax);
+                put16(cpuGetAddress(saveSS, saveSP + 2), saveBX);
+                put16(cpuGetAddress(saveSS, saveSP + 4), saveCX);
+                put16(cpuGetAddress(saveSS, saveSP + 6), saveDX);
+                put16(cpuGetAddress(saveSS, saveSP + 8), saveSI);
+                put16(cpuGetAddress(saveSS, saveSP + 10), saveDI);
+                put16(cpuGetAddress(saveSS, saveSP + 12), saveBP);
+                put16(cpuGetAddress(saveSS, saveSP + 14), saveDS);
+                put16(cpuGetAddress(saveSS, saveSP + 16), saveES);
+                put16(cpuGetAddress(cur_psp, 0x2E), saveSP);
+                put16(cpuGetAddress(cur_psp, 0x30), saveSS);
+                debug(debug_dos, "\tsave STACK: %04X:%04X\n", saveSS, saveSP);
+#endif
                 struct exec_PSP *ep = malloc(sizeof(struct exec_PSP));
                 debug(debug_dos, "\tpush exec_PSP count\n");
                 ep->next = exec_psp_root;
@@ -3653,7 +3671,33 @@ int intr21(void)
                 struct exec_PSP *ep = exec_psp_root;
                 debug(debug_dos, "\tpop exec_PSP count\n");
                 exec_psp_root = ep->next;
+                if(parent_psp != ep->parent)
+                {
+                    debug(debug_dos, "\tWARN! %04X != %04X\n", parent_psp, ep->parent);
+                }
                 parent_psp = ep->parent;
+#ifdef EXEC_STACK_ON_EMU
+                unsigned SS = get16(cpuGetAddress(parent_psp, 0x30));
+                unsigned SP = get16(cpuGetAddress(parent_psp, 0x2E));
+                debug(debug_dos, "\trestore STACK: %04X:%04X\n", SS, SP);
+                cpuSetAX(get16(cpuGetAddress(SS, SP)));
+                cpuSetBX(get16(cpuGetAddress(SS, SP + 2)));
+                cpuSetCX(get16(cpuGetAddress(SS, SP + 4)));
+                cpuSetDX(get16(cpuGetAddress(SS, SP + 6)));
+                cpuSetSI(get16(cpuGetAddress(SS, SP + 8)));
+                cpuSetDI(get16(cpuGetAddress(SS, SP + 10)));
+                cpuSetBP(get16(cpuGetAddress(SS, SP + 12)));
+                cpuSetDS(get16(cpuGetAddress(SS, SP + 14)));
+                cpuSetES(get16(cpuGetAddress(SS, SP + 16)));
+                debug(debug_dos, "restore AX: %04x / %04x\n", cpuGetAX(), ep->parent_ax);
+                debug(debug_dos, "restore CX: %04x / %04x\n", cpuGetCX(), ep->parent_cx);
+                debug(debug_dos, "restore SI: %04x / %04x\n", cpuGetSI(), ep->parent_si);
+                debug(debug_dos, "restore DI: %04x / %04x\n", cpuGetDI(), ep->parent_di);
+                debug(debug_dos, "restore BP: %04x / %04x\n", cpuGetBP(), ep->parent_bp);
+                debug(debug_dos, "restore DS: %04x / %04x\n", cpuGetDS(), ep->parent_ds);
+                debug(debug_dos, "restore ES: %04x / %04x\n", cpuGetES(), ep->parent_es);
+                put16(cpuGetAddress(parent_psp, 0x2E), SP + 18);
+#else
                 cpuSetAX(ep->parent_ax);
                 cpuSetCX(ep->parent_cx);
                 cpuSetSI(ep->parent_si);
@@ -3661,6 +3705,7 @@ int intr21(void)
                 cpuSetBP(ep->parent_bp);
                 cpuSetDS(ep->parent_ds);
                 cpuSetES(ep->parent_es);
+#endif
                 video_mode_set(ep->video_mode);
                 free(ep);
             }
@@ -3669,6 +3714,7 @@ int intr21(void)
             // Get last stack
             cpuSetSP(get16(cpuGetAddress(get_current_PSP(), 0x2E)));
             cpuSetSS(get16(cpuGetAddress(get_current_PSP(), 0x30)));
+            debug(debug_dos, "\t-> STACK: %04X:%04X\n", cpuGetSS(), cpuGetSP());
             put16(cpuGetAddress(cpuGetSS(), cpuGetSP()), returnIP);
             put16(cpuGetAddress(cpuGetSS(), cpuGetSP() + 2), returnCS);
         }

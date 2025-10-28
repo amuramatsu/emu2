@@ -910,6 +910,7 @@ int dos_load_exe(FILE *f, uint16_t psp_mcb)
         cpuSetBP(0x91C); // From real DOS-5 and DOSBOX.
         cpuSetSI(cpuGetIP());
         cpuSetDI(cpuGetSP());
+        debug(debug_dos, "\tNEW STACK: %04X:%04X\n", cpuGetSS(), cpuGetSP());
 
         return 1;
     }
@@ -994,6 +995,7 @@ int dos_load_exe(FILE *f, uint16_t psp_mcb)
     cpuSetBP(0x91C); // From real DOS-5 and DOSBOX.
     cpuSetSI(cpuGetIP());
     cpuSetDI(cpuGetSP());
+    debug(debug_dos, "\tNEW STACK: %04X:%04X\n", cpuGetSS(), cpuGetSP());
 
     unsigned reloc_off = g16(buf + 24);
     int nreloc = g16(buf + 6);
