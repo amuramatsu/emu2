@@ -4444,13 +4444,6 @@ void init_dos(int argc, char **argv)
         mcb_begin = 0x1000;
     mcb_init(mcb_begin, mcb_end);
 
-    // Init SYSVARS
-    dos_sysvars = get_static_memory(128, 0);
-    put16(dos_sysvars + 22, mcb_begin);          // First MCB
-    put16(dos_sysvars + 6, 0xffff);              // OEM function header
-    put16(dos_sysvars + 8, 0xffff);              // OEM function header
-    put16(dos_sysvars + 28, DOS_SFT_BASE & 0xf); // system file table
-    put16(dos_sysvars + 30, DOS_SFT_BASE >> 4);  // system file table
     // NUL driver
     static const uint8_t null_device[] = {
         0xff, 0xff, 0x00, 0x00,                    // Next driver
@@ -4458,7 +4451,56 @@ void init_dos(int argc, char **argv)
         0x00, 0x00, 0x00, 0x00,                    // Request / Int entry points
         'N',  'U',  'L',  ' ',  ' ', ' ', ' ', ' ' // Name
     };
-    putmem(dos_sysvars + 24 + 0x22, null_device, sizeof(null_device));
+    // Init SYSVARS
+    dos_sysvars = get_static_memory(128, 0);
+    put16(dos_sysvars + 6, 0xffff);                     // OEM function header
+    put16(dos_sysvars + 8, 0xffff);                     // OEM function header
+    put16(dos_sysvars + 24 - 8, 0);                     // pointer to current DISK buf
+    put16(dos_sysvars + 24 - 6, 0);                     // pointer to current DISK buf
+    put16(dos_sysvars + 24 - 4, 0);                     // unread CON input
+    put16(dos_sysvars + 24 - 2, mcb_begin);             // First MCB
+    put16(dos_sysvars + 24 + 0x00, 0xffff);             // pointer to first DPB
+    put16(dos_sysvars + 24 + 0x02, 0xffff);             // pointer to first DPB
+    put16(dos_sysvars + 24 + 0x04, DOS_SFT_BASE & 0xf); // system file table
+    put16(dos_sysvars + 24 + 0x06, DOS_SFT_BASE >> 4);  // system file table
+    put16(dos_sysvars + 24 + 0x08, 0xffff);             // CLOCK$ dev
+    put16(dos_sysvars + 24 + 0x0a, 0xffff);             // CLOCK$ dev
+    put16(dos_sysvars + 24 + 0x0c, 0xffff);             // CON dev
+    put16(dos_sysvars + 24 + 0x0e, 0xffff);             // CON dev
+    if((dosver & 0xFF) <= 2)
+    {
+        put8(dos_sysvars + 24 + 0x10, 24);      // Lastdrive is 'Z'
+        put16(dos_sysvars + 24 + 0x11, 512);    // maximum bytes for block devs
+        put16(dos_sysvars + 24 + 0x13, 0xffff); // pointer to first DISK buf
+        put16(dos_sysvars + 24 + 0x15, 0xffff); // pointer to first DISK buf
+        putmem(dos_sysvars + 24 + 0x17, null_device, sizeof(null_device));
+    }
+    else if(dosver == 0x0003)
+    {
+        put8(dos_sysvars + 24 + 0x10, 24);      // number of block devices
+        put16(dos_sysvars + 24 + 0x11, 512);    // maximum bytes for block devs
+        put16(dos_sysvars + 24 + 0x13, 0xffff); // pointer to first DISK buf
+        put16(dos_sysvars + 24 + 0x15, 0xffff); // pointer to first DISK buf
+        put8(dos_sysvars + 24 + 0x1b, 24);      // last drive is 'Z'
+        put16(dos_sysvars + 24 + 0x22, 0xffff); // pointer to FCB table
+        put16(dos_sysvars + 24 + 0x24, 0xffff); // pointer to FCB table
+        put16(dos_sysvars + 24 + 0x26, 0);      // the y in FCB=x,y
+        putmem(dos_sysvars + 24 + 0x28, null_device, sizeof(null_device));
+    }
+    else // DOS3.1 or lator
+    {
+        put16(dos_sysvars + 24 + 0x10, 512);    // maximum bytes for block devs
+        put16(dos_sysvars + 24 + 0x12, 0xffff); // pointer to first DISK buf
+        put16(dos_sysvars + 24 + 0x14, 0xffff); // pointer to first DISK buf
+        put16(dos_sysvars + 24 + 0x16, 0xffff); // pointer to CDS
+        put16(dos_sysvars + 24 + 0x18, 0xffff); // pointer to CDS
+        put16(dos_sysvars + 24 + 0x1a, 0xffff); // pointer to FCB table
+        put16(dos_sysvars + 24 + 0x1c, 0xffff); // pointer to FCB table
+        put16(dos_sysvars + 24 + 0x1e, 0);      // the y in FCB=x,y
+        put8(dos_sysvars + 24 + 0x20, 24);      // number of block devices
+        put8(dos_sysvars + 24 + 0x21, 24);      // last drive is 'Z'
+        putmem(dos_sysvars + 24 + 0x22, null_device, sizeof(null_device));
+    }
 
     // Indos Flag & Swappable Data Area
     indos_flag = get_static_memory(0x12, 0);
