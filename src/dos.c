@@ -3512,9 +3512,25 @@ int intr21(void)
             // Load program
             FILE *f = fopen(fname, "rb");
             if(!f)
-                print_error("can't open '%s': %s\n", fname, strerror(errno));
-            if(!dos_load_exe(f, psp_mcb))
-                print_error("error loading EXE/COM file.\n");
+            {
+                debug(debug_dos, "can't open '%s': %s\n", fname, strerror(errno));
+                mem_free_segment(psp_mcb + 1);
+                dos_error = 5; // access denied
+                cpuSetAX(dos_error);
+                cpuSetFlag(cpuFlag_CF);
+                break;
+            }
+            int s = dos_load_exe(f, psp_mcb);
+            fclose(f);
+            if(!s)
+            {
+                debug(debug_dos, "error loading EXE/COM file.\n");
+                mem_free_segment(psp_mcb + 1);
+                dos_error = 11; // Invalid format
+                cpuSetAX(dos_error);
+                cpuSetFlag(cpuFlag_CF);
+                break;
+            }
             fclose(f);
 
             // copy jft
@@ -3564,6 +3580,7 @@ int intr21(void)
 
                 video_mode_set(0); // video emulation is closed
                 restore_handles();
+                cpuClrFlag(cpuFlag_CF);
             }
             else // Load only
             {
