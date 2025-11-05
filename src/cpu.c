@@ -2623,7 +2623,7 @@ int cpuGetAddrES(uint16_t offset)
 
 int cpuGetAddrSS(uint16_t offset)
 {
-    return 0xFFFFF & (sregs[ES] * 16 + offset);
+    return 0xFFFFF & (sregs[SS] * 16 + offset);
 }
 
 uint16_t cpuGetStack(uint16_t disp)
