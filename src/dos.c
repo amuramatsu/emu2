@@ -2416,6 +2416,15 @@ int intr21(void)
         put16(cpuGetAddress(get_current_PSP(), 0x30), cpuGetSS());
     }
 
+    // Accoding to FreeDOS kernel, some functions must clear carry and error code
+    if((0x38 <= ah && ah <= 0x4f) || (0x56 <= ah && ah <= 0x5c) ||
+       (0x5e <= ah && ah <= 0x60) || (0x65 <= ah && ah <= 0x6a) || ah == 0x6c)
+    {
+        cpuClrFlag(cpuFlag_CF);
+        if(ah != 0x59)
+            dos_error = 0;
+    }
+
     switch(ah)
     {
     case 1: // CHARACTER INPUT WITH ECHO
