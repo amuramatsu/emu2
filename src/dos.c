@@ -3482,6 +3482,13 @@ int intr21(void)
             }
 #endif
 
+            // save return address to Int22 vector
+            unsigned saveIP = cpuGetStack(0);
+            unsigned saveCS = cpuGetStack(2);
+            debug(debug_dos, "\texec RETURN ADDR %04X:%04X\n", saveCS, saveIP);
+            put16(0x22 * 4, saveIP);
+            put16(0x22 * 4 + 2, saveCS);
+
             int psp_mcb = create_PSP(cmdline, env, elen, prgname);
             if(psp_mcb == 0)
             {
@@ -3501,8 +3508,6 @@ int intr21(void)
             unsigned saveDS = cpuGetDS();
             unsigned saveES = cpuGetES();
             unsigned saveSS = cpuGetSS();
-            unsigned saveIP = get16(cpuGetAddress(saveSS, saveSP));
-            unsigned saveCS = get16(cpuGetAddress(saveSS, saveSP + 2));
 
             // Load program
             FILE *f = fopen(fname, "rb");
@@ -3537,11 +3542,6 @@ int intr21(void)
                 cpuClrStartupFlag(0xffff);
                 cpuClrStartupFlag(0xf202);
 #endif
-
-                // save return address to Int22 vector
-                debug(debug_dos, "\texec RETURN ADDR %04X:%04X\n", saveCS, saveIP);
-                put16(0x22 * 4, saveIP);
-                put16(0x22 * 4 + 2, saveCS);
 
                 ret = 1; // return by jump
 
@@ -3621,10 +3621,6 @@ int intr21(void)
             // Exit to parent
             return_code = cpuGetAX() & 0xFF;
 
-            uint16_t returnCS = get16(0x22 * 4 + 2);
-            uint16_t returnIP = get16(0x22 * 4);
-            debug(debug_dos, "\texit RETURN ADDR %04X:%04X\n", returnCS, returnIP);
-
             // Patch INT 22h, 23h and 24h addresses to the ones saved in new PSP
             put16(0x88, get16(cpuGetAddress(get_current_PSP(), 10)));
             put16(0x8A, get16(cpuGetAddress(get_current_PSP(), 12)));
@@ -3632,6 +3628,11 @@ int intr21(void)
             put16(0x8E, get16(cpuGetAddress(get_current_PSP(), 16)));
             put16(0x90, get16(cpuGetAddress(get_current_PSP(), 18)));
             put16(0x92, get16(cpuGetAddress(get_current_PSP(), 20)));
+
+            uint16_t returnCS = get16(0x22 * 4 + 2);
+            uint16_t returnIP = get16(0x22 * 4);
+            debug(debug_dos, "\texit RETURN ADDR %04X:%04X\n", returnCS, returnIP);
+
             if((ax & 0xff00) == 0x3100) // TSR
             {
                 int resize = cpuGetDX() & 0xffff;
