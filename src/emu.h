@@ -8,7 +8,7 @@
 extern volatile int exit_cpu;
 extern uint32_t memory_mask;
 extern uint32_t memory_limit;
-uint8_t *memory;
+extern uint8_t *memory;
 
 int cpuGetAddress(uint16_t segment, uint16_t offset);
 int cpuGetAddrDS(uint16_t offset);

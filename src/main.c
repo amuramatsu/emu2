@@ -27,6 +27,8 @@
 #include <sys/wait.h>
 #include <unistd.h>
 
+uint8_t *memory;
+
 uint8_t read_port(unsigned port)
 {
     // debug(debug_port, "port read %04x\n", port);
