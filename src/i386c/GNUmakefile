@@ -1,5 +1,5 @@
 SHELL=/bin/sh
-AR?=ar
+AR_WRAP?=../../ar_wrap.sh
 CFLAGS?=-O3 -I. -DEMS_SUPPORT
 CFLAGS_IA32= \
 	-DIA32_INSTRUCTION_TRACE \
@@ -20,8 +20,8 @@ all: $(LIBNAME)
 
 $(LIBNAME): $(OBJS:%=obj/%)
 	echo $(OBJS)
-	-rm $(LIBNAME)
-	$(AR) rcs $@ $^ 
+	-rm $@
+	env "CC=$(CC)" $(AR_WRAP) rcs $@ $^
 
 obj/%.o: %.c | obj
 	$(CC) $(CFLAGS) $(CFLAGS_IA32) -c -o $@ $<
