@@ -865,21 +865,19 @@ static void append_random_name(uint32_t addr)
         srand((unsigned int)(tv.tv_sec * (tv.tv_usec + 1)));
         rand_initailzed = 1;
     }
-
-    for(; i < 8; i++)
-    {
-        int n = rand() / ((double)RAND_MAX + 1.0) * sizeof(chrs);
-        if(n >= sizeof(chrs))
-            n = sizeof(chrs) - 1;
-        put8(addr + i, chrs[n]);
-    }
-    put8(addr + i++, '.');
     for(; i < 8 + 1 + 3; i++)
     {
-        int n = rand() / ((double)RAND_MAX + 1.0) * sizeof(chrs);
-        if(n >= sizeof(chrs))
-            n = sizeof(chrs) - 1;
-        put8(addr + i, chrs[n]);
+        if(i == 8)
+        {
+            put8(addr + i, '.');
+        }
+        else
+        {
+            int n = rand() / ((double)RAND_MAX + 1.0) * sizeof(chrs);
+            if(n >= sizeof(chrs))
+                n = sizeof(chrs) - 1;
+            put8(addr + i, chrs[n]);
+        }
     }
     put8(addr + i, '\0');
 }
