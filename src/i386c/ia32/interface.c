@@ -42,6 +42,7 @@
 #include <i386hax/haxcore.h>
 #endif
 
+NOINLINE
 void
 ia32_initreg(void)
 {
@@ -101,6 +102,7 @@ ia32_initreg(void)
 #endif
 }
 
+NOINLINE
 void
 ia32reset(void)
 {
@@ -109,6 +111,7 @@ ia32reset(void)
 	ia32_initreg();
 }
 
+NOINLINE
 void
 ia32shut(void)
 {
@@ -168,7 +171,7 @@ extern void emu2_hook(void);
 void
 ia32_step(void)
 {
-	static int PREV_T_FLAG = 0;
+	static volatile int PREV_T_FLAG = 0;
 	switch (sigsetjmp(exec_1step_jmpbuf, 1)) {
 	case 0:
 		break;
@@ -201,6 +204,7 @@ ia32_step(void)
 }
 //#pragma optimize("", on)
 
+NOINLINE
 void CPUCALL
 ia32_interrupt(int vect, int soft)
 {
@@ -237,6 +241,7 @@ ia32_interrupt(int vect, int soft)
 /*
  * error function
  */
+NOINLINE
 void
 ia32_panic(const char *str, ...)
 {
@@ -264,6 +269,7 @@ ia32_panic(const char *str, ...)
 #endif
 }
 
+NOINLINE
 void
 ia32_warning(const char *str, ...)
 {
@@ -277,6 +283,7 @@ ia32_warning(const char *str, ...)
 	msgbox("ia32_warning", buf);
 }
 
+NOINLINE
 void
 ia32_printf(const char *str, ...)
 {

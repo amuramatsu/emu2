@@ -53,7 +53,35 @@ typedef int BOOL;
 
 #define IOINPCALL
 #define IOOUTCALL
-#define INLINE inline
+#if !defined(INLINE)
+#if defined(_MSC_VER)
+#pragma warning(disable: 4244)
+#pragma warning(disable: 4245)
+#define INLINE __inline
+#elif defined(__BORLANDC__)
+#define INLINE __inline
+#elif defined(__GNUC__) || defined(__clang__)
+#define INLINE __inline__ __attribute__((always_inline))
+#else
+#define INLINE
+#endif
+#endif
+
+//noinline
+#if !defined(NOINLINE)
+#if defined(_MSC_VER)
+#define NOINLINE __declspec(noinline)
+#elif defined(__BORLANDC__)
+#define NOINLINE
+#elif defined(__GNUC__) || defined(__clang__)
+#define NOINLINE __attribute__((noinline))
+#else
+#define NOINLINE
+#endif
+#else
+#undef  NOINLINE
+#define NOINLINE
+#endif
 
 #define __ASSERT assert
 
