@@ -3,6 +3,7 @@ AR_WRAP?=../../ar_wrap.sh
 CFLAGS?=-O3 -I. -DEMS_SUPPORT
 CFLAGS_IA32= \
 	-DIA32_INSTRUCTION_TRACE \
+	-DIA32_DONT_BREAK_REP \
 	-Wno-unused-value -Wno-unused-variable \
 	-Wno-unused-but-set-variable -Wno-unused-function \
 	-Wno-unused-label -Wno-pointer-sign \
