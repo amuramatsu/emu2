@@ -387,6 +387,16 @@ static uint8_t irq0_handler[] = {
     0x58,       // pop    ax
     0xCF        // iret
 };
+static uint8_t irq13_handler[] = {
+    0x50,       // push   ax
+    0xB0, 0x20, // mov    al, 0x20
+    0xE6, 0xA0, // out    0xa0, al // EOI to Slave PIC
+    0xE6, 0x20, // out    0x20, al // EOI to Master PIC
+    0x58,       // pop    ax
+    0xCD, 0x02, // int    0x02 (NMI)
+    0xCF        // iret
+};
+
 static void init_bios_mem(void)
 {
     // Some of those are also in video.c, we write a
@@ -394,6 +404,10 @@ static void init_bios_mem(void)
     // INT10 functions before reading.
     put8(0x413, 0x80); // ram size: 640k
     put8(0x414, 0x02); //
+
+    // irq13 handler
+    for(int i = 0; i < sizeof(irq13_handler); i++)
+        put8(0xFFFC0 + i, irq13_handler[i]);
 
     // irq0 handler
     for(int i = 0; i < sizeof(irq0_handler); i++)

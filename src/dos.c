@@ -4383,6 +4383,9 @@ void init_dos(int argc, char **argv)
     // Install IRQ0 handler
     put16(0x8 * 4 + 0, 0);
     put16(0x8 * 4 + 2, 0xFFFD);
+    // Install IRQ13 handler
+    put16(0x75 * 4 + 0, 0);
+    put16(0x75 * 4 + 2, 0xFFFC);
     // Special hack for DOS/4GW
     for(int i = 0x50; i < 0x60; i++)
         put8(i * 4 + 0, 0x50);
