@@ -189,15 +189,27 @@ static void intr15(void)
 #endif
         // Segment Descriptor
         // 0x00 | Limit[15:0]          | Base[15:0]                         |
-        // 0x04 | Base[23:0] | Attr    | Flags | Limit[19:16] | Base[31:24] |
-        uint32_t src =
-            (desc[0x17] << 24) | (desc[0x14] << 16) | (desc[0x13] << 8) | desc[0x12];
-        uint32_t slim = ((desc[0x16] & 0xF) << 16) | (desc[0x11] << 8) | desc[0x10];
-        uint32_t dst =
-            (desc[0x1f] << 24) | (desc[0x1c] << 16) | (desc[0x1b] << 8) | desc[0x1a];
-        uint32_t dlim = ((desc[0x1e] & 0xF) << 16) | (desc[0x19] << 8) | desc[0x18];
-        if(desc[0x15] != 0x92 || desc[0x1d] != 0x92 || (desc[0x16] & 0xF0) ||
-           (desc[0x1e] & 0xF0))
+        // 0x04 | Base[23:16] | Attr   | Flags | Limit[19:16] | Base[31:24] |
+        uint32_t src = (desc[2 * 8 + 7] << 24) | (desc[2 * 8 + 4] << 16) |
+                       (desc[2 * 8 + 3] << 8) | desc[2 * 8 + 2];
+        uint32_t slim =
+            ((desc[2 * 8 + 6] & 0xF) << 16) | (desc[2 * 8 + 1] << 8) | desc[2 * 8];
+        uint32_t dst = (desc[3 * 8 + 7] << 24) | (desc[3 * 8 + 4] << 16) |
+                       (desc[3 * 8 + 3] << 8) | desc[3 * 8 + 2];
+        uint32_t dlim =
+            ((desc[3 * 8 + 6] & 0xF) << 16) | (desc[3 * 8 + 1] << 8) | desc[3 * 8];
+        if(debug_active(debug_int))
+        {
+            debug(debug_int, "S-15%04X get extended memory copy: \n", ax);
+            debug(debug_int, "   SRC: base=%08x, limit=%d\n", src, slim);
+            debug(debug_int, "        attr=%04x, flag=%02x\n", desc[2 * 8 + 5],
+                  (desc[2 * 8 + 6] >> 4) & 0x0F);
+            debug(debug_int, "   DST: base=%08x, limit=%d\n", dst, dlim);
+            debug(debug_int, "        attr=%04x, flag=%02x\n", desc[3 * 8 + 5],
+                  (desc[3 * 8 + 6] >> 4) & 0x0F);
+        }
+        if((desc[2 * 8 + 5] & 0xFE) != 0x92 || (desc[3 * 8 + 5] & 0xFE) != 0x92 ||
+           (desc[2 * 8 + 6] & 0xF0) || (desc[3 * 8 + 6] & 0xF0))
         {
             cpuSetFlag(cpuFlag_CF);
             cpuSetAX((ax & 0xFF) | 0x02);
