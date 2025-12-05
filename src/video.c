@@ -109,6 +109,15 @@ static void term_get_size(void)
     }
 }
 
+// Update posx/posy in BIOS memory and CRTC for one page only
+static void update_posxy_page(int page)
+{
+    memory[0x450 + page * 2] = vid_posx[page];
+    memory[0x451 + page * 2] = vid_posy[page];
+    if(page == vid_page)
+        crtc_cursor_loc = vid_posx[vid_page] + vid_posy[vid_page] * vid_sx;
+}
+
 // Update posx/posy in BIOS memory and CRTC
 static void update_posxy(void)
 {
@@ -797,7 +806,7 @@ static void video_putchar(uint8_t ch, uint16_t at, int page)
         else
             video_putchar_cont = 1;
     }
-    update_posxy();
+    update_posxy_page(page);
 }
 
 static void video_putchar_nocmd(uint8_t ch, uint16_t at, int page)
@@ -917,7 +926,7 @@ void intr10(void)
         if(vid_posy[page] >= vid_sy)
             vid_posy[page] = vid_sy - 1;
         video_putchar_cont = 0;
-        update_posxy();
+        update_posxy_page(page);
         break;
     }
     case 0x03: // GET CURSOR POS
@@ -1153,7 +1162,7 @@ void intr10(void)
             vid_posx[page] = save_posx;
             vid_posy[page] = save_posy;
         }
-        update_posxy();
+        update_posxy_page(page);
     }
     break;
     case 0x1A: // GET/SET DISPLAY COMBINATION CODE
