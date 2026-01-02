@@ -1369,12 +1369,6 @@ static int run_emulator(char *file, const char *prgname, char *cmdline, char *en
     return 0;
 }
 
-// DOS exit
-NORETURN void intr20(void)
-{
-    exit(0);
-}
-
 // Returns a character read from keyboard - note that control keys return two
 // characters, so we need to store the half-processed char here.
 static uint16_t inp_last_key;

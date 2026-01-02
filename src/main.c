@@ -298,9 +298,10 @@ int bios_routine(unsigned inum)
 
     if(inum == 0x21)
         ret = intr21();
-    else if(inum == 0x20)
-        intr20();
-    else if(inum == 0x22)
+    else if(inum == 0x20) {
+        cpuSetAX(0);
+        ret = intr21();
+    } else if(inum == 0x22)
         intr22();
     else if(inum == 0x1A)
         intr1A();
