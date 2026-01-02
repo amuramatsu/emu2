@@ -431,6 +431,14 @@ static void mcb_set_name(uint16_t mcb, const char *buf)
 {
     for(int i = 0; i < 8; i++)
         put8(mcb * 16 + 8 + i, buf[i]);
+    for(int i = 8; i; --i) {
+        if (buf[i - 1] == 32) {
+            put8(mcb * 16 + 8 + i - 1, 0);
+            continue;
+        } else {
+            break;
+        }
+    }
 }
 
 static uint16_t mcb_ok(uint16_t mcb)
