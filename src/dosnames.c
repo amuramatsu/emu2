@@ -965,7 +965,7 @@ void make_fcbname(char *dos_shortname, const char *path)
     int s = 0;
     int in_dbcs = 0;
     if(path[0] && path[1] == ':')
-        p = 2;
+        s = p = 2;
     while(path[p])
     {
         if(in_dbcs)
@@ -975,12 +975,6 @@ void make_fcbname(char *dos_shortname, const char *path)
         else if(char_pathsep(path[p]))
             s = p + 1;
         p++;
-    }
-
-    if(s == 0)
-    {
-        memset(dos_shortname, ' ', 11);
-        return;
     }
 
     in_dbcs = 0;
