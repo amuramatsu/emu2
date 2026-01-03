@@ -3900,6 +3900,7 @@ int intr21(void)
 #else
         uint8_t *path_ptr = getptr(cpuGetAddrDS(cpuGetSI()), 64);
         uint8_t *out_ptr = getptr(cpuGetAddrES(cpuGetDI()), 128);
+        uint8_t buf[128] = {0,};
 
         if(!path_ptr || !out_ptr)
         {
@@ -3911,13 +3912,17 @@ int intr21(void)
         // Copy input path to output
         int i;
         for(i = 0; path_ptr[i] && i < 128 - 3; i++)
-            (out_ptr + 3)[i] = path_ptr[i];
-        out_ptr[127] = 0;
-        int drive = dos_path_normalize((char *)(out_ptr + 3), 127 - 3, 0);
-        out_ptr[2] = '\\';
-        out_ptr[1] = ':';
-        out_ptr[0] = 'A' + drive;
-        debug(debug_dos, "\t '%s' -> '%s'\n", path_ptr, out_ptr);
+            (buf + 3)[i] = path_ptr[i];
+        if (i < 128 - 3)
+            (buf + 3)[i]= 0;
+        buf[127] = 0;
+        debug(debug_dos, "\t '%s' ", buf + 3);
+        int drive = dos_path_normalize((char *)(buf + 3), 127 - 3, 0);
+        buf[2] = '\\';
+        buf[1] = ':';
+        buf[0] = 'A' + drive;
+        memcpy(out_ptr, buf, 128);
+        debug(debug_dos, "-> '%s'\n", buf);
 #endif
         cpuClrFlag(cpuFlag_CF);
         cpuSetAX(0x5C);
