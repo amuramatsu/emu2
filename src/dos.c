@@ -3542,7 +3542,6 @@ int intr21(void)
                 cpuSetFlag(cpuFlag_CF);
                 break;
             }
-            fclose(f);
 
             // copy jft
             copy_jft(
