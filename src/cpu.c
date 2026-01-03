@@ -2271,6 +2271,8 @@ static void do_instruction(uint8_t code)
 {
     if(debug_active(debug_cpu) && segment_override == NoSeg)
         debug_instruction();
+// 1492:9AF8 0001             add     [bx+di],al
+//    if (get16(cpuGetAddress(0x1492, 0x9AF8)) == 0x100) exit(26);
     switch(code)
     {
     case 0x00: OP_br8(ADD);

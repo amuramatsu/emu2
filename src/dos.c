@@ -3755,7 +3755,7 @@ int intr21(void)
         {
             put16(new_psp + 0x32, 20);      // default size of JFT is 20
             put16(new_psp + 0x34, 0x18);    // default JFT offset
-            put16(new_psp + 0x36, new_psp); // default JFT is on PSP
+            put16(new_psp + 0x36, cpuGetDX()); // default JFT is on PSP
             copy_jft(cpuGetDX(),
                      cpuGetAddress(get16(orig_psp + 0x36), get16(orig_psp + 0x34)),
                      get8(orig_psp + 0x32) & 0xff);
