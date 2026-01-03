@@ -3662,7 +3662,7 @@ int intr21(void)
                 mem_resize_segment(get_current_PSP(), resize);
                 return_code |= 0x300;
             }
-            else
+            else if (parent_psp != get_current_PSP())
             {
                 // Deallocate child memory
                 mem_free_owned(get_current_PSP());
@@ -3671,11 +3671,6 @@ int intr21(void)
             }
 
             // Set PSP to parent
-            if(!exec_psp_root && parent_psp == get_current_PSP())
-            {
-                debug(debug_dos, "\texec_PSP is empty\n");
-                exit(ax & 0xFF);
-            }
             if(exec_psp_root && exec_psp_root->psp == get_current_PSP())
             {
                 struct exec_PSP *ep = exec_psp_root;
