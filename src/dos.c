@@ -3701,6 +3701,8 @@ int intr21(void)
             debug(debug_dos, "\t-> STACK: %04X:%04X\n", cpuGetSS(), cpuGetSP());
             put16(cpuGetAddress(cpuGetSS(), cpuGetSP()), returnIP);
             put16(cpuGetAddress(cpuGetSS(), cpuGetSP() + 2), returnCS);
+            put16(cpuGetAddress(cpuGetSS(), cpuGetSP() + 4), 0x202);
+            // Flags: DF=0, IF=1, TF=0, NC
         }
         restore_handles();
         break;
