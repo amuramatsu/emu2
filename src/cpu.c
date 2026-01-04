@@ -1857,7 +1857,8 @@ static void rep(int flagval)
        loop  to continue for CMPS and SCAS instructions. */
     uint8_t next = FETCH_B();
     unsigned count = wregs[CX];
-
+    uint8_t first = 1;
+    uint8_t subsequent = !TF;
     switch(next)
     {
     case 0x26: /* ES: */
@@ -1881,73 +1882,101 @@ static void rep(int flagval)
         segment_override = NoSeg;
         break;
     case 0x6c: /* REP INSB */
-        for(; count > 0; count--)
+        for(; (count > 0) && (first || subsequent); count--, first = 0)
             i_insb();
+        if (count)
+            cpuSetIP(start_ip);
         wregs[CX] = count;
         break;
     case 0x6d: /* REP INSW */
-        for(; count > 0; count--)
+        for(; (count > 0) && (first || subsequent); count--, first = 0)
             i_insw();
+        if (count)
+            cpuSetIP(start_ip);
         wregs[CX] = count;
         break;
     case 0x6e: /* REP OUTSB */
-        for(; count > 0; count--)
+        for(; (count > 0) && (first || subsequent); count--, first = 0)
             i_outsb();
+        if (count)
+            cpuSetIP(start_ip);
         wregs[CX] = count;
         break;
     case 0x6f: /* REP OUTSW */
-        for(; count > 0; count--)
+        for(; (count > 0) && (first || subsequent); count--, first = 0)
             i_outsw();
+        if (count)
+            cpuSetIP(start_ip);
         wregs[CX] = count;
         break;
     case 0xa4: /* REP MOVSB */
-        for(; count > 0; count--)
+        for(; (count > 0) && (first || subsequent); count--, first = 0)
             i_movsb();
+        if (count)
+            cpuSetIP(start_ip);
         wregs[CX] = count;
         break;
     case 0xa5: /* REP MOVSW */
-        for(; count > 0; count--)
+        for(; (count > 0) && (first || subsequent); count--, first = 0)
             i_movsw();
+        if (count)
+            cpuSetIP(start_ip);
         wregs[CX] = count;
         break;
     case 0xa6: /* REP(N)E CMPSB */
-        for(ZF = flagval; (ZF == flagval) && (count > 0); count--)
+        for(ZF = flagval; (ZF == flagval) && (count > 0) && (first || subsequent); count--, first = 0)
             i_cmpsb();
+        if (ZF == flagval && count)
+            cpuSetIP(start_ip);
         wregs[CX] = count;
         break;
     case 0xa7: /* REP(N)E CMPSW */
-        for(ZF = flagval; (ZF == flagval) && (count > 0); count--)
+        for(ZF = flagval; (ZF == flagval) && (count > 0) && (first || subsequent); count--, first = 0)
             i_cmpsw();
+        if (ZF == flagval && count)
+            cpuSetIP(start_ip);
         wregs[CX] = count;
         break;
     case 0xaa: /* REP STOSB */
-        for(; count > 0; count--)
+        for(; (count > 0) && (first || subsequent); count--, first = 0)
             i_stosb();
+        if (count)
+            cpuSetIP(start_ip);
         wregs[CX] = count;
         break;
-    case 0xab: /* REP LODSW */
-        for(; count > 0; count--)
+    case 0xab: /* REP STOSW */
+        for(; (count > 0) && (first || subsequent); count--, first = 0)
             i_stosw();
+        if (count)
+            cpuSetIP(start_ip);
         wregs[CX] = count;
         break;
     case 0xac: /* REP LODSB */
-        for(; count > 0; count--)
+        for(; (count > 0) && (first || subsequent); count--, first = 0)
             i_lodsb();
+        if (count)
+            cpuSetIP(start_ip);
         wregs[CX] = count;
         break;
     case 0xad: /* REP LODSW */
-        for(; count > 0; count--)
+        for(; (count > 0) && (first || subsequent); count--, first = 0)
             i_lodsw();
+        if (count)
+            cpuSetIP(start_ip);
         wregs[CX] = count;
         break;
     case 0xae: /* REP(N)E SCASB */
-        for(ZF = flagval; (ZF == flagval) && (count > 0); count--)
+        for(ZF = flagval; (ZF == flagval) && (count > 0) && (first || subsequent); count--, first = 0)
             i_scasb();
+        if (ZF == flagval && count)
+            cpuSetIP(start_ip);
         wregs[CX] = count;
         break;
     case 0xaf: /* REP(N)E SCASW */
-        for(ZF = flagval; (ZF == flagval) && (count > 0); count--)
+        for(ZF = flagval; (ZF == flagval) && (count > 0) && (first || subsequent); count--, first = 0)
             i_scasw();
+        if (ZF == flagval && count)
+            cpuSetIP(start_ip);
         wregs[CX] = count;
         break;
     default: /* Ignore REP */
