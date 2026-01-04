@@ -1924,6 +1924,12 @@ static void rep(int flagval)
         wregs[CX] = count;
         break;
     case 0xa6: /* REP(N)E CMPSB */
+        if (! count) {
+            break;
+            // ecm: Input with cx=0 should continue execution after
+            //  the instruction but not modify any registers or flags.
+            //  without this, NZ, cx=0 then repe cmpsb would set ZR.
+        }
         for(ZF = flagval; (ZF == flagval) && (count > 0) && (first || subsequent); count--, first = 0)
             i_cmpsb();
         if (ZF == flagval && count)
@@ -1931,6 +1937,9 @@ static void rep(int flagval)
         wregs[CX] = count;
         break;
     case 0xa7: /* REP(N)E CMPSW */
+        if (! count) {
+            break;
+        }
         for(ZF = flagval; (ZF == flagval) && (count > 0) && (first || subsequent); count--, first = 0)
             i_cmpsw();
         if (ZF == flagval && count)
@@ -1966,6 +1975,9 @@ static void rep(int flagval)
         wregs[CX] = count;
         break;
     case 0xae: /* REP(N)E SCASB */
+        if (! count) {
+            break;
+        }
         for(ZF = flagval; (ZF == flagval) && (count > 0) && (first || subsequent); count--, first = 0)
             i_scasb();
         if (ZF == flagval && count)
@@ -1973,6 +1985,9 @@ static void rep(int flagval)
         wregs[CX] = count;
         break;
     case 0xaf: /* REP(N)E SCASW */
+        if (! count) {
+            break;
+        }
         for(ZF = flagval; (ZF == flagval) && (count > 0) && (first || subsequent); count--, first = 0)
             i_scasw();
         if (ZF == flagval && count)
