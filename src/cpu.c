@@ -2589,7 +2589,7 @@ unsigned cpuGetIP(void) { return ip; }
 // Address of flags in stack when in interrupt handler
 static uint8_t *flagAddr(void)
 {
-    return memory + (0xFFFFF & (4 + cpuGetSS() * 16 + cpuGetSP()));
+    return memory + (memory_mask & (4 + cpuGetSS() * 16 + cpuGetSP()));
 }
 
 // Set flags in the stack
@@ -2620,22 +2620,22 @@ void cpuClrStartupFlag(enum cpuFlags flag)
 
 int cpuGetAddress(uint16_t segment, uint16_t offset)
 {
-    return 0xFFFFF & (segment * 16 + offset);
+    return memory_mask & (segment * 16 + offset);
 }
 
 int cpuGetAddrDS(uint16_t offset)
 {
-    return 0xFFFFF & (sregs[DS] * 16 + offset);
+    return memory_mask & (sregs[DS] * 16 + offset);
 }
 
 int cpuGetAddrES(uint16_t offset)
 {
-    return 0xFFFFF & (sregs[ES] * 16 + offset);
+    return memory_mask & (sregs[ES] * 16 + offset);
 }
 
 int cpuGetAddrSS(uint16_t offset)
 {
-    return 0xFFFFF & (sregs[SS] * 16 + offset);
+    return memory_mask & (sregs[SS] * 16 + offset);
 }
 
 uint16_t cpuGetStack(uint16_t disp)
