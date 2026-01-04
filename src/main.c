@@ -28,6 +28,7 @@
 #include <unistd.h>
 
 uint8_t *memory;
+uint8_t halting = 0;
 
 uint8_t read_port(unsigned port)
 {

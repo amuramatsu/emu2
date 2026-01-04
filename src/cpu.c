@@ -1,5 +1,6 @@
 #include <stdio.h>
 #include <stdlib.h>
+#include <unistd.h>
 
 #include "cpu.h"
 #include "dbg.h"
@@ -405,6 +406,8 @@ static void next_instruction(void)
 void interrupt(unsigned int_num)
 {
     uint16_t dest_seg, dest_off;
+
+    halting = 0;
 
     dest_off = GetMemAbsW(int_num * 4);
     dest_seg = GetMemAbsW(int_num * 4 + 2);
@@ -2246,10 +2249,13 @@ static void i_leave(void)
     wregs[BP] = PopWord();
 }
 
-NORETURN static void i_halt(void)
+static void i_halt(void)
 {
-    printf("HALT instruction!\n");
-    exit(0);
+    if (! IF) {
+        printf("\r\nHALT instruction with CLI!\r\n");
+        exit(0);
+    }
+    halting = 1;
 }
 
 static void debug_instruction(void)
@@ -2541,6 +2547,10 @@ void execute(void)
     {
         if(IF)
             handle_irq();
+        if (halting) {
+            usleep(5000);
+            continue;
+        }
         next_instruction();
     }
 }
