@@ -294,8 +294,15 @@ int bios_routine(unsigned inum)
     int ret = 0;
     if(inum >= 0x08 && inum <= 0x0f)
         pic_eoi(inum - 0x08);
-    else if(inum >= 0x70 && inum <= 0x78)
-        pic_eoi(inum - 0x70);
+    else if(inum >= 0x70 && inum <= 0x78) {
+        // ecm: High IRQs should send EOI to both their own (slave) PIC
+        //  and to IRQs of the other (master) PIC. The order of the EOIs
+        //  doesn't matter apparently. As we send exact EOIs, the master
+        //  EOI here should be for IRQ 2 (the cascaded IRQ).
+        // https://stackoverflow.com/questions/67254711/handling-x86-irqs-from-secondary-pic-eoi-order-important
+        pic_eoi(2);
+        pic_eoi(inum - 0x70 + 8);
+    }
 
     if(inum == 0x21)
         ret = intr21();
@@ -337,6 +344,10 @@ int bios_routine(unsigned inum)
         intr28();
     else if(inum == 0x25)
         intr25();
+    else if(0 && inum == 0x2D) {
+        printf("\r\nTrigger\r\n");
+        cpuTriggerIRQ(8);
+    }
     else if(inum == 0x29)
         intr29();
     else if(inum == 0x2A)

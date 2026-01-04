@@ -208,6 +208,12 @@ void pic_eoi(int num)
         num -= 8;
     }
     pic[pic_idx].ISR &= ~(0x01 << num);
+    // if (pic_idx) printf("\r\n%02Xh\r\n", pic[1].ISR);
+    // ecm: This mechanism automatically receives an EOI
+    //  for IRQ2 when IRQ8+ is specified and all slave
+    //  IRQs had received their EOIs. We don't need this
+    //  because the handler in main.c bios_routine (the
+    //  only caller of pic_eoi) can just call pic_eoi(2).
     if(pic_idx && !pic[1].ISR)
         pic[0].ISR &= ~(0x01 << PIC_CASCADED);
 }
@@ -287,7 +293,7 @@ void handle_irq(void)
                         uint8_t m2 = 0x01 << slave_intr;
                         pic[1].IRR &= ~m2;
                         if(!pic[1].auto_eoi)
-                            pic[1].ISR |= m;
+                            pic[1].ISR |= m2;
                         debug(debug_int, " ->handle irq, irq=%d -> %02X\n",
                               slave_intr + 8, pic[1].irq_base + slave_intr);
                         cpu_hard_interrupt(pic[1].irq_base + slave_intr);
