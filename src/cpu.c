@@ -18,6 +18,7 @@ static uint16_t ip;
 static uint16_t start_ip; // IP at start of instruction, used on interrupts.
 static unsigned instruction_length;
 // rough, doesn't count modrm, disp, imm
+static unsigned dotrace;
 
 /* All the byte flags will either be 1 or 0 */
 static int8_t CF, PF, ZF, TF, IF, DF;
@@ -251,6 +252,8 @@ void init_cpu(void)
     }
 
     CF = PF = AF = ZF = SF = TF = IF = DF = OF = 0;
+    dotrace = 0;
+    halting = 0;
 
     segment_override = NoSeg;
 }
@@ -410,6 +413,7 @@ void interrupt(unsigned int_num)
 {
     uint16_t dest_seg, dest_off;
 
+    dotrace = 0;
     halting = 0;
 
     dest_off = GetMemAbsW(int_num * 4);
@@ -433,8 +437,11 @@ static void do_retf(void)
 
 static void trap_1(void)
 {
+    dotrace = 1;
     next_instruction();
-    interrupt(1);
+    if (dotrace) {	// only if no interrupt entered
+        interrupt(1);
+    }
 }
 
 static void do_popf(void)
