@@ -2584,7 +2584,7 @@ static void do_instruction(uint8_t code)
     case 0xed: i_inaxdx();                                     break;
     case 0xee: i_outdxal();                                    break;
     case 0xef: i_outdxax();                                    break;
-    case 0xf0: /* LOCK */                                      break;
+    case 0xf0: do_instruction(FETCH_B()); /* lock */           break;
     case 0xf1: i_undefined();                                  break;
     case 0xf2: rep(0);                                         break;
     case 0xf3: rep(1);                                         break;
