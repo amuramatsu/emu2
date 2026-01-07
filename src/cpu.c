@@ -16,6 +16,8 @@ static uint16_t sregs[4];
 
 static uint16_t ip;
 static uint16_t start_ip; // IP at start of instruction, used on interrupts.
+static unsigned instruction_length;
+// rough, doesn't count modrm, disp, imm
 
 /* All the byte flags will either be 1 or 0 */
 static int8_t CF, PF, ZF, TF, IF, DF;
@@ -391,6 +393,7 @@ static void SetModRMRMB(unsigned ModRM, uint8_t val)
 static void next_instruction(void)
 {
     start_ip = ip;
+    instruction_length = 0;
     if(sregs[CS] == 0 && ip < 0x100) // Handle our BIOS codes
     {
         FETCH_B();
@@ -1859,6 +1862,10 @@ static void rep(int flagval)
     unsigned count = wregs[CX];
     uint8_t first = 1;
     uint8_t subsequent = !TF;
+    if (++instruction_length >= 16) {
+        i_undefined();
+        return;
+    }
     switch(next)
     {
     case 0x26: /* ES: */
@@ -1995,6 +2002,7 @@ static void rep(int flagval)
         wregs[CX] = count;
         break;
     default: /* Ignore REP */
+        -- instruction_length;
         do_instruction(next);
     }
 }
@@ -2323,6 +2331,10 @@ static void do_instruction(uint8_t code)
         debug_instruction();
 // 1492:9AF8 0001             add     [bx+di],al
 //    if (get16(cpuGetAddress(0x1492, 0x9AF8)) == 0x100) exit(26);
+    if (++instruction_length >= 16) {
+        i_undefined();
+        return;
+    }
     switch(code)
     {
     case 0x00: OP_br8(ADD);
