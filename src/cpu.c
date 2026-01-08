@@ -19,6 +19,7 @@ static uint16_t start_ip; // IP at start of instruction, used on interrupts.
 static unsigned instruction_length;
 // rough, doesn't count modrm, disp, imm
 static unsigned dotrace;
+static unsigned doinglockout;
 
 /* All the byte flags will either be 1 or 0 */
 static int8_t CF, PF, ZF, TF, IF, DF;
@@ -442,6 +443,14 @@ static void trap_1(void)
     if (dotrace) {	// only if no interrupt entered
         interrupt(1);
     }
+}
+
+static void interruptlockout(void) {
+    if (!doinglockout) {
+        doinglockout = 1;
+        next_instruction();
+    }
+    doinglockout = 0;
 }
 
 static void do_popf(void)
@@ -1092,6 +1101,9 @@ static void i_mov_sregw(void)
 {
     int ModRM = FETCH_B();
     sregs[(ModRM & 0x18) >> 3] = GetModRMRMW(ModRM);
+    if (((ModRM & 0x18) >> 3) == SS) {
+        interruptlockout();
+    }
 }
 
 static void i_lea(void)
@@ -2367,7 +2379,9 @@ static void do_instruction(uint8_t code)
     case 0x14: OP_ald8(ADC);
     case 0x15: OP_axd16(ADC);
     case 0x16: PushWord(sregs[SS]);                            break;
-    case 0x17: sregs[SS] = PopWord();                          break;
+    case 0x17: sregs[SS] = PopWord();
+               interruptlockout();
+               break;
     case 0x18: OP_br8(SBB);
     case 0x19: OP_wr16(SBB);
     case 0x1A: OP_r8b(SBB);
