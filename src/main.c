@@ -28,6 +28,7 @@
 #include <unistd.h>
 
 uint8_t *memory;
+uint8_t halting = 0;
 
 uint8_t read_port(unsigned port)
 {
@@ -298,9 +299,18 @@ int bios_routine(unsigned inum)
 
     if(inum == 0x21)
         ret = intr21();
-    else if(inum == 0x20)
-        intr20();
-    else if(inum == 0x22)
+    else if(inum == 0x20) {
+        cpuSetAX(0);
+        ret = intr21();
+    } else if (inum == 0x27) {
+        unsigned bytes = cpuGetDX();
+        unsigned paras = bytes >> 4;
+        if (bytes & 15)
+            ++ paras;
+        cpuSetDX(paras);
+        cpuSetAX(0x3100);
+        ret = intr21();
+    } else if(inum == 0x22)
         intr22();
     else if(inum == 0x1A)
         intr1A();

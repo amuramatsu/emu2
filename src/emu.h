@@ -26,6 +26,7 @@ int bios_routine(unsigned inum);
 void execute(void); // 1 ins.
 void init_cpu(void);
 void cpu_reset(void);
+extern uint8_t halting;
 
 // Helper functions
 uint32_t get_static_memory(uint16_t bytes, uint16_t align);

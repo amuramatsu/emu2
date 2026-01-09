@@ -1369,12 +1369,6 @@ static int run_emulator(char *file, const char *prgname, char *cmdline, char *en
     return 0;
 }
 
-// DOS exit
-NORETURN void intr20(void)
-{
-    exit(0);
-}
-
 // Returns a character read from keyboard - note that control keys return two
 // characters, so we need to store the half-processed char here.
 static uint16_t inp_last_key;
@@ -3668,7 +3662,7 @@ int intr21(void)
                 mem_resize_segment(get_current_PSP(), resize);
                 return_code |= 0x300;
             }
-            else
+            else if (parent_psp != get_current_PSP())
             {
                 // Deallocate child memory
                 mem_free_owned(get_current_PSP());
@@ -3677,11 +3671,6 @@ int intr21(void)
             }
 
             // Set PSP to parent
-            if(!exec_psp_root && parent_psp == get_current_PSP())
-            {
-                debug(debug_dos, "\texec_PSP is empty\n");
-                exit(ax & 0xFF);
-            }
             if(exec_psp_root && exec_psp_root->psp == get_current_PSP())
             {
                 struct exec_PSP *ep = exec_psp_root;
@@ -3712,6 +3701,8 @@ int intr21(void)
             debug(debug_dos, "\t-> STACK: %04X:%04X\n", cpuGetSS(), cpuGetSP());
             put16(cpuGetAddress(cpuGetSS(), cpuGetSP()), returnIP);
             put16(cpuGetAddress(cpuGetSS(), cpuGetSP() + 2), returnCS);
+            put16(cpuGetAddress(cpuGetSS(), cpuGetSP() + 4), 0x202);
+            // Flags: DF=0, IF=1, TF=0, NC
         }
         restore_handles();
         break;
@@ -3761,7 +3752,7 @@ int intr21(void)
         {
             put16(new_psp + 0x32, 20);      // default size of JFT is 20
             put16(new_psp + 0x34, 0x18);    // default JFT offset
-            put16(new_psp + 0x36, new_psp); // default JFT is on PSP
+            put16(new_psp + 0x36, cpuGetDX()); // default JFT is on PSP
             copy_jft(cpuGetDX(),
                      cpuGetAddress(get16(orig_psp + 0x36), get16(orig_psp + 0x34)),
                      get8(orig_psp + 0x32) & 0xff);
@@ -3909,6 +3900,7 @@ int intr21(void)
 #else
         uint8_t *path_ptr = getptr(cpuGetAddrDS(cpuGetSI()), 64);
         uint8_t *out_ptr = getptr(cpuGetAddrES(cpuGetDI()), 128);
+        uint8_t buf[128] = {0,};
 
         if(!path_ptr || !out_ptr)
         {
@@ -3920,13 +3912,17 @@ int intr21(void)
         // Copy input path to output
         int i;
         for(i = 0; path_ptr[i] && i < 128 - 3; i++)
-            (out_ptr + 3)[i] = path_ptr[i];
-        out_ptr[127] = 0;
-        int drive = dos_path_normalize((char *)(out_ptr + 3), 127 - 3, 0);
-        out_ptr[2] = '\\';
-        out_ptr[1] = ':';
-        out_ptr[0] = 'A' + drive;
-        debug(debug_dos, "\t '%s' -> '%s'\n", path_ptr, out_ptr);
+            (buf + 3)[i] = path_ptr[i];
+        if (i < 128 - 3)
+            (buf + 3)[i]= 0;
+        buf[127] = 0;
+        debug(debug_dos, "\t '%s' ", buf + 3);
+        int drive = dos_path_normalize((char *)(buf + 3), 127 - 3, 0);
+        buf[2] = '\\';
+        buf[1] = ':';
+        buf[0] = 'A' + drive;
+        memcpy(out_ptr, buf, 128);
+        debug(debug_dos, "-> '%s'\n", buf);
 #endif
         cpuClrFlag(cpuFlag_CF);
         cpuSetAX(0x5C);

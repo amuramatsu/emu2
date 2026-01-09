@@ -11,8 +11,6 @@
 static uint16_t mcb_start = 0x40;
 // MCB allocation strategy
 static uint8_t mcb_alloc_st = 0;
-// PSP (Program Segment Prefix) location
-static uint16_t current_PSP;
 
 extern uint32_t indos_flag;
 
@@ -433,6 +431,14 @@ static void mcb_set_name(uint16_t mcb, const char *buf)
 {
     for(int i = 0; i < 8; i++)
         put8(mcb * 16 + 8 + i, buf[i]);
+    for(int i = 8; i; --i) {
+        if (buf[i - 1] == 32) {
+            put8(mcb * 16 + 8 + i - 1, 0);
+            continue;
+        } else {
+            break;
+        }
+    }
 }
 
 static uint16_t mcb_ok(uint16_t mcb)
@@ -583,7 +589,7 @@ void mem_free_segment(uint16_t seg)
 
 uint16_t mem_alloc_segment(uint16_t size, uint16_t *max)
 {
-    uint16_t mcb = mcb_alloc_new(size, current_PSP, max);
+    uint16_t mcb = mcb_alloc_new(size, get_current_PSP(), max);
     if(mcb)
         return 1 + mcb;
     else
@@ -661,8 +667,7 @@ uint16_t create_PSP(const char *cmdline, const char *environment, uint16_t env_s
     uint16_t env_seg = env_mcb + 1;
     uint16_t jft_seg = jft_mcb + 1;
     uint16_t psp_seg = psp_mcb + 1;
-    current_PSP = psp_seg;
-    put16(indos_flag + 0xF, psp_seg);
+    set_current_PSP(psp_seg);
 
     if(debug_active(debug_dos))
     {
@@ -770,14 +775,11 @@ uint16_t create_PSP(const char *cmdline, const char *environment, uint16_t env_s
 unsigned get_current_PSP(void)
 {
     unsigned n = get16(indos_flag + 0xF) & 0xffff;
-    if(current_PSP != n)
-        debug(debug_dos, "PSP is broken? %04x %04x\n", n, current_PSP);
-    return current_PSP;
+    return n;
 }
 
 void set_current_PSP(uint16_t psp_seg)
 {
-    current_PSP = psp_seg;
     put16(indos_flag + 0xF, psp_seg);
 }
 

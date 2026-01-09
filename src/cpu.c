@@ -1,5 +1,6 @@
 #include <stdio.h>
 #include <stdlib.h>
+#include <unistd.h>
 
 #include "cpu.h"
 #include "dbg.h"
@@ -405,6 +406,8 @@ static void next_instruction(void)
 void interrupt(unsigned int_num)
 {
     uint16_t dest_seg, dest_off;
+
+    halting = 0;
 
     dest_off = GetMemAbsW(int_num * 4);
     dest_seg = GetMemAbsW(int_num * 4 + 2);
@@ -2246,10 +2249,13 @@ static void i_leave(void)
     wregs[BP] = PopWord();
 }
 
-NORETURN static void i_halt(void)
+static void i_halt(void)
 {
-    printf("HALT instruction!\n");
-    exit(0);
+    if (! IF) {
+        printf("\r\nHALT instruction with CLI!\r\n");
+        exit(0);
+    }
+    halting = 1;
 }
 
 static void debug_instruction(void)
@@ -2271,6 +2277,8 @@ static void do_instruction(uint8_t code)
 {
     if(debug_active(debug_cpu) && segment_override == NoSeg)
         debug_instruction();
+// 1492:9AF8 0001             add     [bx+di],al
+//    if (get16(cpuGetAddress(0x1492, 0x9AF8)) == 0x100) exit(26);
     switch(code)
     {
     case 0x00: OP_br8(ADD);
@@ -2539,6 +2547,10 @@ void execute(void)
     {
         if(IF)
             handle_irq();
+        if (halting) {
+            usleep(5000);
+            continue;
+        }
         next_instruction();
     }
 }
@@ -2577,7 +2589,7 @@ unsigned cpuGetIP(void) { return ip; }
 // Address of flags in stack when in interrupt handler
 static uint8_t *flagAddr(void)
 {
-    return memory + (0xFFFFF & (4 + cpuGetSS() * 16 + cpuGetSP()));
+    return memory + (memory_mask & (4 + cpuGetSS() * 16 + cpuGetSP()));
 }
 
 // Set flags in the stack
@@ -2608,22 +2620,22 @@ void cpuClrStartupFlag(enum cpuFlags flag)
 
 int cpuGetAddress(uint16_t segment, uint16_t offset)
 {
-    return 0xFFFFF & (segment * 16 + offset);
+    return memory_mask & (segment * 16 + offset);
 }
 
 int cpuGetAddrDS(uint16_t offset)
 {
-    return 0xFFFFF & (sregs[DS] * 16 + offset);
+    return memory_mask & (sregs[DS] * 16 + offset);
 }
 
 int cpuGetAddrES(uint16_t offset)
 {
-    return 0xFFFFF & (sregs[ES] * 16 + offset);
+    return memory_mask & (sregs[ES] * 16 + offset);
 }
 
 int cpuGetAddrSS(uint16_t offset)
 {
-    return 0xFFFFF & (sregs[SS] * 16 + offset);
+    return memory_mask & (sregs[SS] * 16 + offset);
 }
 
 uint16_t cpuGetStack(uint16_t disp)
