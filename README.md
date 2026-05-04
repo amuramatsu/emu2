@@ -8,21 +8,21 @@ Some extended features are implemented from
 [dmsc's original version](https://github.com/dmsc/emu2.git).
 
 * Experimental IA-32 CPU core implementation. This cpu core is came from
-  [NekoProject 21/w](https://simk98.github.io/np21w/).  
+  [NekoProject 21/w](https://simk98.github.io/np21w/).
   Pentium instruction set and x87 FPU, MMX, SSE, SSE2, SSE3, SSSE3, SSE4 and
-  SSE4a instructions are supported. Almost protect mode features are also supported.  
+  SSE4a instructions are supported. Almost protect mode features are also supported.
   IA-32 CPU core is **3x slower** than original 286-realmode core.
 * XMS 3.0.
 * LIM-EMS 4.0.
 * Some peripherals needed to run DOS extender (a20 gate, 8259 PIC).
-* DBCS codepage support.  
-  Some Japanese applications ([VZEditor](https://github.com/vcraftjp/VZEditor), 
+* DBCS codepage support.
+  Some Japanese applications ([VZEditor](https://github.com/vcraftjp/VZEditor),
   FD, MIEL, FILMNT, LHMNT..) can work on this with `EMU2_CODEPAGE=932`.
   DBCS filenames are also supported.
-* Load and exec (ah=4B00h) and loading only (ah=4B01h) are implemented as real MS-DOS.   
+* Load and exec (ah=4B00h) and loading only (ah=4B01h) are implemented as real MS-DOS.
   Some debuggers like as TurboC++ IDE, [Enhanced DEBUG](https://pcdosretro.gitlab.io/enhdebug.htm)
   are working with debuggee without any options.
-  If you want to use batch file which contains some TSRs and applications, you can use 
+  If you want to use batch file which contains some TSRs and applications, you can use
   [FreeCOM](https://github.com/FDOS/freecom) with environment variable `EMU2_EXEC_SAMEPROC=1`.
 * Long File Name support like as Windows 95 DOS prompt.
 
@@ -132,6 +132,16 @@ The available environment variables are:
                        programs will retrieve this info and adjust the screen
                        properly, some other will ignore this and setup the text
                        mode again.
+
+- `EMU2_CPU_SPEED`     Limits the emulated CPU speed to at most the given
+                       number of instructions per millisecond. For reference,
+                       a value of 1000 (1 MIPS) approximates a fast 8086 or
+                       slow 80286. By default (or when set to 0), there is no
+                       limit; a modern PC can typically reach 200,000 or more
+                       instructions per millisecond. Note that this does not
+                       accurately emulate a specific CPU speed, since real
+                       8086/80286 processors take a varying number of cycles
+                       per instruction.
 
 - `EMU2_MEMSIZE`       Virtual machines memory size (conventional memory +
                        extended memory).

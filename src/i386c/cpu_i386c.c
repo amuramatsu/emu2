@@ -1,12 +1,19 @@
 #include <compiler.h>
+#include <limits.h>
 #include <ia32/cpu.h>
 #include <ia32/instructions/fpu/fp.h>
 #include <../dbg.h>
 #define IA32 1
+#include <../env.h>
 #include <../emu.h>
+#include <../utils.h>
 
 extern int bios_routine(unsigned inum);
 extern void handle_irq(void);
+
+static unsigned ins_per_ms;
+static unsigned num_ins_exec;
+static EMU_CLOCK_TYPE next_sleep_time;
 
 static void
 debug_regs(void)
@@ -137,9 +144,9 @@ void execute(void)
 {
     CPU_BASECLOCK = 300; // each operation step must be lower than 200 tick
     for(; !exit_cpu;) {
+		num_ins_exec = CPU_BASECLOCK - CPU_REMCLOCK;
         CPU_REMCLOCK = CPU_BASECLOCK;
-        if (CPU_EFLAG & I_FLAG)
-            handle_irq();
+		handle_irq();
         ia32_step();
     }
 }
@@ -149,6 +156,19 @@ extern int cpu_inst_trace;
 #endif
 void init_cpu(void)
 {
+    // Read CPU speed vars
+    ins_per_ms = 0;
+    num_ins_exec = 0;
+    if(getenv(ENV_CPUSPEED))
+    {
+        unsigned speed = atoi(getenv(ENV_CPUSPEED));
+        // Invalid values map to 0
+        if(speed >= 1 && speed <= INT_MAX / 2)
+            ins_per_ms = speed;
+    }
+    emu_get_time(&next_sleep_time);
+    emu_advance_time(1000, &next_sleep_time);
+
 #ifdef IA32_INSTRUCTION_TRACE
     if(debug_active(debug_cpu))
         cpu_inst_trace = 1;
@@ -265,4 +285,26 @@ cpu_reset(void)
 {
     ia32reset();
     system_reboot();
+}
+
+void
+cpu_hard_interrupt(int vect)
+{
+	if (CPU_FLAG & I_FLAG)
+		ia32_interrupt(vect, 0);
+}
+
+#include <unistd.h>
+void
+cpu_usleep(int us)
+{
+    usleep(us);
+    // Restart the clock after the sleep, recalculating next CPU sleep time
+    if(ins_per_ms)
+    {
+        emu_get_time(&next_sleep_time);
+        if (num_ins_exec < ins_per_ms)
+            emu_advance_time(1000 - 1000 * num_ins_exec / ins_per_ms, &next_sleep_time);
+        num_ins_exec = 0;
+    }
 }

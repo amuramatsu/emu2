@@ -35,6 +35,9 @@ int reg_farcall_entry(uint32_t ret_addr, void (*func)(void));
 // async HW update
 void emulator_update(void);
 
+// Sleeps keeping track of CPU speed
+void cpu_usleep(int us);
+
 // Trigger hardware interrupts.
 // IRQ-0 to IRQ-7 call INT-08 to INT-0F
 // IRQ-8 to IRQ-F call INT-70 to INT-77

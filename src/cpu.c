@@ -1,3 +1,4 @@
+#include <limits.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
@@ -6,7 +7,9 @@
 #include "dbg.h"
 #include "dis.h"
 #include "emu.h"
+#include "env.h"
 #include "os.h"
+#include "utils.h"
 
 // Forward declarations
 static void do_instruction(uint8_t code);
@@ -26,6 +29,15 @@ static int8_t CF, PF, ZF, TF, IF, DF;
 
 /* All the word flags may be either none-zero (true) or zero (false) */
 static unsigned AF, OF, SF;
+
+/* CPU speed: number of instructions to execute each millisecond */
+static unsigned ins_per_ms;
+
+/* Number of instructions executed in the current time slice */
+static unsigned num_ins_exec;
+
+/* Last time emulator slept */
+static EMU_CLOCK_TYPE next_sleep_time;
 
 /* Override segment execution */
 static int segment_override;
@@ -257,6 +269,19 @@ void init_cpu(void)
     halting = 0;
 
     segment_override = NoSeg;
+
+    // Read CPU speed vars
+    ins_per_ms = 0;
+    num_ins_exec = 0;
+    if(getenv(ENV_CPUSPEED))
+    {
+        unsigned speed = atoi(getenv(ENV_CPUSPEED));
+        // Invalid values map to 0
+        if(speed >= 1 && speed <= INT_MAX / 2)
+            ins_per_ms = speed;
+    }
+    emu_get_time(&next_sleep_time);
+    emu_advance_time(1000, &next_sleep_time);
 }
 
 static uint8_t GetModRMRegB(unsigned ModRM)
@@ -413,6 +438,8 @@ static void next_instruction(void)
 void interrupt(unsigned int_num)
 {
     uint16_t dest_seg, dest_off;
+    if(!IF)
+        return;
 
     dotrace = 0;
     halting = 0;
@@ -1621,7 +1648,7 @@ static uint16_t shifts_w(uint16_t val, int ModRM, unsigned count)
         else
         {
             CF = (val & (0x10000 >> count)) != 0;
-            val <<= count;
+            val = (uint32_t)val << count;
         }
         OF = !(val & 0x8000) != !CF;
         SetZFW(val);
@@ -1878,14 +1905,62 @@ static void i_outdxax(void)
     write_port(port + 1, wregs[AX] >> 8);
 }
 
+// Exit a REP early because we need to sleep the CPU
+static void exit_early_rep(uint16_t count)
+{
+    // Reset IP to start of REP sequence, reduce executed instruction count
+    // and stopre CX register.
+    num_ins_exec--;
+    ip = start_ip;
+    wregs[CX] = count;
+}
+
+// Executes unconditional REP on the given ins
+#define REP_COUNT(ins) \
+    if(TF && count > 0) {                                          \
+        ins();                                                     \
+        return exit_early_rep(count-1);                            \
+    }                                                              \
+    if(ins_per_ms)                                                 \
+    {                                                              \
+        for(; count > 0; count--)                                  \
+        {                                                          \
+            if(wregs[CX] != count && num_ins_exec++ >= ins_per_ms) \
+                return exit_early_rep(count);                      \
+            ins();                                                 \
+        }                                                          \
+    }                                                              \
+    else                                                           \
+        for(; count > 0; count--)                                  \
+            ins();                                                 \
+    wregs[CX] = count;                                             \
+
+// Executes conditional REP on the given ins
+#define REP_CONDITION(ins) \
+    if(TF && ZF == flagval && count > 0) {                         \
+        ins();                                                     \
+        return exit_early_rep(count-1);                            \
+    }                                                              \
+    if(ins_per_ms)                                                 \
+    {                                                              \
+        for(ZF = flagval; (ZF == flagval) && (count > 0); count--) \
+        {                                                          \
+            if(wregs[CX] != count && num_ins_exec++ >= ins_per_ms) \
+                return exit_early_rep(count);                      \
+            ins();                                                 \
+        }                                                          \
+    }                                                              \
+    else                                                           \
+        for(ZF = flagval; (ZF == flagval) && (count > 0); count--) \
+            ins();                                                 \
+    wregs[CX] = count;
+
 static void rep(int flagval)
 {
     /* Handles rep- and repnz- prefixes. flagval is the value of ZF for the
        loop  to continue for CMPS and SCAS instructions. */
     uint8_t next = FETCH_B();
     unsigned count = wregs[CX];
-    uint8_t first = 1;
-    uint8_t subsequent = !TF;
     if (++instruction_length >= 16) {
         i_undefined();
         return;
@@ -1913,117 +1988,46 @@ static void rep(int flagval)
         segment_override = NoSeg;
         break;
     case 0x6c: /* REP INSB */
-        for(; (count > 0) && (first || subsequent); count--, first = 0)
-            i_insb();
-        if (count)
-            cpuSetIP(start_ip);
-        wregs[CX] = count;
+        REP_COUNT(i_insb);
         break;
     case 0x6d: /* REP INSW */
-        for(; (count > 0) && (first || subsequent); count--, first = 0)
-            i_insw();
-        if (count)
-            cpuSetIP(start_ip);
-        wregs[CX] = count;
+        REP_COUNT(i_insw);
         break;
     case 0x6e: /* REP OUTSB */
-        for(; (count > 0) && (first || subsequent); count--, first = 0)
-            i_outsb();
-        if (count)
-            cpuSetIP(start_ip);
-        wregs[CX] = count;
+        REP_COUNT(i_outsb);
         break;
     case 0x6f: /* REP OUTSW */
-        for(; (count > 0) && (first || subsequent); count--, first = 0)
-            i_outsw();
-        if (count)
-            cpuSetIP(start_ip);
-        wregs[CX] = count;
+        REP_COUNT(i_outsw);
         break;
     case 0xa4: /* REP MOVSB */
-        for(; (count > 0) && (first || subsequent); count--, first = 0)
-            i_movsb();
-        if (count)
-            cpuSetIP(start_ip);
-        wregs[CX] = count;
+        REP_COUNT(i_movsb);
         break;
     case 0xa5: /* REP MOVSW */
-        for(; (count > 0) && (first || subsequent); count--, first = 0)
-            i_movsw();
-        if (count)
-            cpuSetIP(start_ip);
-        wregs[CX] = count;
+        REP_COUNT(i_movsw);
         break;
     case 0xa6: /* REP(N)E CMPSB */
-        if (! count) {
-            break;
-            // ecm: Input with cx=0 should continue execution after
-            //  the instruction but not modify any registers or flags.
-            //  without this, NZ, cx=0 then repe cmpsb would set ZR.
-        }
-        for(ZF = flagval; (ZF == flagval) && (count > 0) && (first || subsequent); count--, first = 0)
-            i_cmpsb();
-        if (ZF == flagval && count)
-            cpuSetIP(start_ip);
-        wregs[CX] = count;
+        REP_CONDITION(i_cmpsb);
         break;
     case 0xa7: /* REP(N)E CMPSW */
-        if (! count) {
-            break;
-        }
-        for(ZF = flagval; (ZF == flagval) && (count > 0) && (first || subsequent); count--, first = 0)
-            i_cmpsw();
-        if (ZF == flagval && count)
-            cpuSetIP(start_ip);
-        wregs[CX] = count;
+        REP_CONDITION(i_cmpsw);
         break;
     case 0xaa: /* REP STOSB */
-        for(; (count > 0) && (first || subsequent); count--, first = 0)
-            i_stosb();
-        if (count)
-            cpuSetIP(start_ip);
-        wregs[CX] = count;
+        REP_COUNT(i_stosb);
         break;
-    case 0xab: /* REP STOSW */
-        for(; (count > 0) && (first || subsequent); count--, first = 0)
-            i_stosw();
-        if (count)
-            cpuSetIP(start_ip);
-        wregs[CX] = count;
+    case 0xab: /* REP LODSW */
+        REP_COUNT(i_stosw);
         break;
     case 0xac: /* REP LODSB */
-        for(; (count > 0) && (first || subsequent); count--, first = 0)
-            i_lodsb();
-        if (count)
-            cpuSetIP(start_ip);
-        wregs[CX] = count;
+        REP_COUNT(i_lodsb);
         break;
     case 0xad: /* REP LODSW */
-        for(; (count > 0) && (first || subsequent); count--, first = 0)
-            i_lodsw();
-        if (count)
-            cpuSetIP(start_ip);
-        wregs[CX] = count;
+        REP_COUNT(i_lodsw);
         break;
     case 0xae: /* REP(N)E SCASB */
-        if (! count) {
-            break;
-        }
-        for(ZF = flagval; (ZF == flagval) && (count > 0) && (first || subsequent); count--, first = 0)
-            i_scasb();
-        if (ZF == flagval && count)
-            cpuSetIP(start_ip);
-        wregs[CX] = count;
+        REP_CONDITION(i_scasb);
         break;
     case 0xaf: /* REP(N)E SCASW */
-        if (! count) {
-            break;
-        }
-        for(ZF = flagval; (ZF == flagval) && (count > 0) && (first || subsequent); count--, first = 0)
-            i_scasw();
-        if (ZF == flagval && count)
-            cpuSetIP(start_ip);
-        wregs[CX] = count;
+        REP_CONDITION(i_scasw);
         break;
     default: /* Ignore REP */
         -- instruction_length;
@@ -2136,7 +2140,7 @@ static void i_f7pre(void)
         break;
     case 0x20: /* MUL AX, Ew */
     {
-        uint32_t result = dest * wregs[AX];
+        uint32_t result = (uint32_t)dest * wregs[AX];
 
         wregs[AX] = result & 0xFFFF;
         wregs[DX] = result >> 16;
@@ -2162,7 +2166,7 @@ static void i_f7pre(void)
     break;
     case 0x30: /* DIV AX, Ew */
     {
-        uint32_t numer = (wregs[DX] << 16) + wregs[AX];
+        uint32_t numer = ((uint32_t)wregs[DX] << 16) + wregs[AX];
         if(dest && numer / dest < 0x10000)
         {
             wregs[AX] = numer / dest;
@@ -2174,7 +2178,7 @@ static void i_f7pre(void)
     break;
     case 0x38: /* IDIV AL, Ew */
     {
-        int32_t numer = (wregs[DX] << 16) + wregs[AX];
+        int32_t numer = ((uint32_t)wregs[DX] << 16) + wregs[AX];
         int32_t div;
 
         if(dest && (div = numer / (int16_t)dest) < 0x8000 && div >= -0x8000)
@@ -2627,13 +2631,35 @@ void execute(void)
 {
     for(; !exit_cpu;)
     {
-        if(IF)
-            handle_irq();
-        if (halting) {
-            usleep(5000);
-            continue;
+        if(ins_per_ms)
+        {
+            // Slowdown CPU count
+            if(num_ins_exec++ >= ins_per_ms)
+            {
+                debug(debug_cpu, "-- CPU SLEEP --\n");
+                while(!emu_compare_time(&next_sleep_time))
+                    usleep(500);
+                // Advance next sleep 1ms
+                emu_advance_time(1000, &next_sleep_time);
+                num_ins_exec -= ins_per_ms;
+            }
         }
+        handle_irq();
         next_instruction();
+    }
+}
+
+// Sleeps and advances next CPU time slice
+void cpu_usleep(int us)
+{
+    usleep(us);
+    // Restart the clock after the sleep, recalculating next CPU sleep time
+    if(ins_per_ms)
+    {
+        emu_get_time(&next_sleep_time);
+        if(num_ins_exec < ins_per_ms)
+            emu_advance_time(1000 - 1000 * num_ins_exec / ins_per_ms, &next_sleep_time);
+        num_ins_exec = 0;
     }
 }
 

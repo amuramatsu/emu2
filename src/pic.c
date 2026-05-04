@@ -56,8 +56,7 @@ static struct pic_stat pic[2] = {
 #define PIC_CASCADED 2
 
 #ifdef IA32
-extern void ia32_interrupt(int vect, int soft);
-#define cpu_hard_interrupt(n) ia32_interrupt(n, 0)
+extern void cpu_hard_interrupt(int vect);
 #else
 extern void interrupt(unsigned int_num);
 #define cpu_hard_interrupt(n) interrupt(n)
