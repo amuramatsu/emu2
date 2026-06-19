@@ -174,7 +174,7 @@ void init_cpu(void)
         cpu_inst_trace = 1;
 #endif
     i386c_initialize();
-    fpu_initialize();
+    fpu_initialize(1);
     ia32reset();
 }
 

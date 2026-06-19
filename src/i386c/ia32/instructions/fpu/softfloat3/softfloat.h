@@ -54,6 +54,10 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #define THREAD_LOCAL
 #endif
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 /*----------------------------------------------------------------------------
 | Software floating-point underflow tininess-detection mode.
 *----------------------------------------------------------------------------*/
@@ -251,6 +255,7 @@ extern THREAD_LOCAL uint_fast8_t extF80_roundingPrecision;
 #ifdef SOFTFLOAT_FAST_INT64
 uint_fast32_t extF80_to_ui32( sw_extFloat80_t, uint_fast8_t, bool );
 uint_fast64_t extF80_to_ui64( sw_extFloat80_t, uint_fast8_t, bool );
+int16_t extF80_to_i16(sw_extFloat80_t, uint_fast8_t, bool); // for np2 modified by SimK
 int_fast32_t extF80_to_i32( sw_extFloat80_t, uint_fast8_t, bool );
 int_fast64_t extF80_to_i64( sw_extFloat80_t, uint_fast8_t, bool );
 uint_fast32_t extF80_to_ui32_r_minMag( sw_extFloat80_t, bool );
@@ -367,6 +372,10 @@ bool f128M_eq_signaling( const sw_float128_t *, const sw_float128_t * );
 bool f128M_le_quiet( const sw_float128_t *, const sw_float128_t * );
 bool f128M_lt_quiet( const sw_float128_t *, const sw_float128_t * );
 bool f128M_isSignalingNaN( const sw_float128_t * );
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif
 

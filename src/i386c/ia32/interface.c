@@ -42,7 +42,6 @@
 #include <i386hax/haxcore.h>
 #endif
 
-NOINLINE
 void
 ia32_initreg(void)
 {
@@ -91,7 +90,7 @@ ia32_initreg(void)
 	CPU_ADRSMASK = 0x000fffff;
 
 	tlb_init();
-	fpu_initialize();
+	fpu_initialize(1);
 
 #if defined(USE_CPU_EIPMASK)
 	CPU_EIPMASK = CPU_STATSAVE.cpu_inst_default.op_32 ? 0xffffffff : 0xffff;
@@ -102,22 +101,40 @@ ia32_initreg(void)
 #endif
 }
 
-NOINLINE
 void
 ia32reset(void)
 {
-
 	memset(&i386core.s, 0, sizeof(i386core.s));
 	ia32_initreg();
+#if defined(SUPPORT_IA32_HAXM)
+	i386hax_resetVMCPU();
+	i386haxfunc_vcpu_getREGs(&np2haxstat.state);
+	i386haxfunc_vcpu_getFPU(&np2haxstat.fpustate);
+	if (!np2hax.emumode)
+	{
+		np2haxstat.update_regs = np2haxstat.update_fpu = 0;
+		// HAXMレジスタ→猫レジスタにコピー
+		ia32hax_copyregHAXtoNP2();
+	}
+#endif
 }
 
-NOINLINE
 void
 ia32shut(void)
 {
-
 	memset(&i386core.s, 0, offsetof(I386STAT, cpu_type));
 	ia32_initreg();
+#if defined(SUPPORT_IA32_HAXM)
+	i386hax_resetVMCPU();
+	i386haxfunc_vcpu_getREGs(&np2haxstat.state);
+	i386haxfunc_vcpu_getFPU(&np2haxstat.fpustate);
+	if (!np2hax.emumode)
+	{
+		np2haxstat.update_regs = np2haxstat.update_fpu = 0;
+		// HAXMレジスタ→猫レジスタにコピー
+		ia32hax_copyregHAXtoNP2();
+	}
+#endif
 }
 
 void
@@ -203,8 +220,6 @@ ia32_step(void)
 	} while (CPU_REMCLOCK > 0);
 }
 //#pragma optimize("", on)
-
-NOINLINE
 void CPUCALL
 ia32_interrupt(int vect, int soft)
 {
@@ -241,7 +256,6 @@ ia32_interrupt(int vect, int soft)
 /*
  * error function
  */
-NOINLINE
 void
 ia32_panic(const char *str, ...)
 {
@@ -269,7 +283,6 @@ ia32_panic(const char *str, ...)
 #endif
 }
 
-NOINLINE
 void
 ia32_warning(const char *str, ...)
 {
@@ -283,7 +296,6 @@ ia32_warning(const char *str, ...)
 	msgbox("ia32_warning", buf);
 }
 
-NOINLINE
 void
 ia32_printf(const char *str, ...)
 {

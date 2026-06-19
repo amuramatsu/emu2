@@ -277,7 +277,9 @@ AAM(void)
 		al = CPU_AL;
 		CPU_AH = al / base;
 		CPU_AL = al % base;
-		CPU_FLAGL = szpcflag[CPU_AL];
+		// A_FLAG is undefined, but real i386 may clear this flag.
+		CPU_FLAGL &= ~(A_FLAG | S_FLAG | Z_FLAG | P_FLAG);
+		CPU_FLAGL |= szpcflag[CPU_AL];
 		return;
 	}
 	EXCEPTION(DE_EXCEPTION, 0);

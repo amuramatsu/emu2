@@ -118,11 +118,7 @@ ia32_setextsize(UINT32 size)
 //#endif
 			{
 #if defined(SUPPORT_IA32_HAXM)
-#if defined(NP2_WIN)
 				_aligned_free(extmem);
-#else
-				free(extmem);
-#endif
 #else
 				_MFREE(extmem);
 #endif
@@ -147,11 +143,7 @@ ia32_setextsize(UINT32 size)
 //#endif
 			{
 #if defined(SUPPORT_IA32_HAXM)
-#if defined(NP2_WIN)
 				extmem = (UINT8*)_aligned_malloc(size + 4096, 4096);
-#else
-				posix_memalign(&extmem, 4096, size + 4096);
-#endif
 #else
 				extmem = (UINT8 *)_MALLOC(size + 16, "EXTMEM");
 #endif
@@ -202,6 +194,7 @@ ia32_setemm(UINT frame, UINT32 addr) {
 	CPU_EMSPTR[frame] = ptr;
 }
 #endif
+
 
 /*
  * モード遷移
@@ -277,7 +270,7 @@ modify_eflags(UINT32 new_flags, UINT32 mask)
 	CPU_EFLAG = (REAL_EFLAGREG & ~mask) | (new_flags & mask);
 
 	CPU_OV = CPU_FLAG & O_FLAG;
-	CPU_TRAP = (CPU_FLAG & (I_FLAG|T_FLAG)) == (I_FLAG|T_FLAG);
+	CPU_TRAP = (CPU_FLAG & (T_FLAG)) == (T_FLAG);
 	if (CPU_STAT_PM) {
 		if ((orig ^ CPU_EFLAG) & VM_FLAG) {
 			if (CPU_EFLAG & VM_FLAG) {

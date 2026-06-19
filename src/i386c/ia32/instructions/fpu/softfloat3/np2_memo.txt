@@ -322,9 +322,7 @@ platform.h
 primitiveTypes.h
 softfloat_types.h
 の先頭に、
-compiler_base.h の BYTESEX_LITTLE が定義されている場合は
 #define LITTLEENDIAN 1
-を定義し、
 #define SOFTFLOAT_FAST_INT64
-は常に定義している。
+を定義している。
 

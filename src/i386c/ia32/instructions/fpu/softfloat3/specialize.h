@@ -48,6 +48,17 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #define init_detectTininess softfloat_tininess_afterRounding
 
 /*----------------------------------------------------------------------------
+| The values to return on conversions to 16-bit integer formats that raise an
+| invalid exception. (for np2 modified by SimK)
+*----------------------------------------------------------------------------*/
+#define ui16_fromPosOverflow 0xFFFF
+#define ui16_fromNegOverflow 0xFFFF
+#define ui16_fromNaN         0xFFFF
+#define i16_fromPosOverflow  (-0x7FFF - 1)
+#define i16_fromNegOverflow  (-0x7FFF - 1)
+#define i16_fromNaN          (-0x7FFF - 1)
+
+/*----------------------------------------------------------------------------
 | The values to return on conversions to 32-bit integer formats that raise an
 | invalid exception.
 *----------------------------------------------------------------------------*/

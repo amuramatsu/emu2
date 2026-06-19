@@ -68,6 +68,7 @@ uint_fast64_t
 uint_fast64_t softfloat_roundMToUI64( bool, uint32_t *, uint_fast8_t, bool );
 #endif
 
+int16_t softfloat_roundToI16(bool, uint_fast64_t, uint_fast8_t, bool); // for np2 modified by SimK
 int_fast32_t softfloat_roundToI32( bool, uint_fast64_t, uint_fast8_t, bool );
 
 #ifdef SOFTFLOAT_FAST_INT64

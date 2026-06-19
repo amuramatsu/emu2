@@ -613,19 +613,28 @@ do { \
 #define	_WORD_SHLD(d, s, c) \
 do { \
 	(c) &= 0x1f; \
-	/* c >= 16 is undefined, but real i386 working with c == 16 */ \
-	if ((c)) { \
+	if (((c)) && ((c) < 16)) { \
 		CPU_OV = 0; \
 		if ((c) == 1) { \
 			CPU_OV = ((d) ^ ((d) << 1)) & 0x8000; \
 		} \
-		if ((c) <= 16) { \
-			CPU_FLAGL = (UINT8)(((d) >> (16 - (c))) & 1); /*C_FLAG*/\
-		} else { \
-			CPU_FLAGL = 0; /*C_FLAG*/\
-		} \
+		CPU_FLAGL = (UINT8)(((d) >> (16 - (c))) & 1); /*C_FLAG*/\
 		(d) = ((d) << 16) | (s); \
 		(d) <<= (c); \
+		(d) >>= 16; \
+		CPU_FLAGL |= szpflag_w[(d)] | A_FLAG; \
+	} else if ((c) > 15) { \
+		CPU_OV = 0; \
+		if ((c) == 17) { \
+			CPU_OV = ((s) ^ ((s) << 1)) & 0x8000; \
+		} \
+		if ((c) == 16) { \
+			CPU_FLAGL = (UINT8)((d) & 1); /*C_FLAG*/\
+		} else { \
+			CPU_FLAGL = (UINT8)(((s) >> (32 - (c))) & 1); /*C_FLAG*/\
+		} \
+		(d) |= (s) << 16; \
+		(d) <<= (c) - 16; \
 		(d) >>= 16; \
 		CPU_FLAGL |= szpflag_w[(d)] | A_FLAG; \
 	} \

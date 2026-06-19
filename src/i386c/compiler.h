@@ -18,7 +18,7 @@
 #define USE_SSSE3 1
 #define USE_SSE4A 1
 #define USE_SSE4_1 1
-#define SUPPORT_FPU_SOFTFLOAT 1
+#define SUPPORT_FPU_SOFTFLOAT3 1
 #define FPU_TYPE_SOFTFLOAT 0
 
 typedef int      INT;

@@ -30,6 +30,10 @@
 
 #include "system_inst.h"
 
+#if defined(USE_CUSTOM_HOOKINST)
+#include "bios/bios.h"
+#endif
+
 
 void CPUCALL
 LGDT_Ms(UINT32 op)
@@ -73,13 +77,13 @@ SGDT_Ms(UINT32 op)
 		CPU_WORKCLOCK(11);
 		limit = CPU_GDTR_LIMIT;
 		base = CPU_GDTR_BASE;
-		// Win32s requires all 32 bits to be stored here, despite various Intel docs
-		// claiming that the upper 8 bits are either zeroed or undefined in 16-bit mode
-#if 0
-		if (!CPU_INST_OP32) {
-			base &= 0x00ffffff;
-		}
-#endif
+
+		// SGDTではi386以降常時32bitでStoreされるらしい。
+		// 新しめのIntel SDMの擬似コードではそのように書かれている
+		//if (!CPU_INST_OP32) {
+		//	base &= 0x00ffffff;
+		//}
+
 		madr = calc_ea_dst(op);
 		cpu_vmemorywrite_w(CPU_INST_SEGREG_INDEX, madr, limit);
 		cpu_vmemorywrite_d(CPU_INST_SEGREG_INDEX, madr + 2, base);
@@ -234,11 +238,9 @@ SIDT_Ms(UINT32 op)
 		CPU_WORKCLOCK(11);
 		limit = CPU_IDTR_LIMIT;
 		base = CPU_IDTR_BASE;
-#if 0
 		if (!CPU_INST_OP32) {
 			base &= 0x00ffffff;
 		}
-#endif
 		madr = calc_ea_dst(op);
 		cpu_vmemorywrite_w(CPU_INST_SEGREG_INDEX, madr, limit);
 		cpu_vmemorywrite_d(CPU_INST_SEGREG_INDEX, madr + 2, base);
@@ -1049,6 +1051,21 @@ _LOCK(void)
 void
 HLT(void)
 {
+#if defined(USE_CUSTOM_HOOKINST)
+	if (bioshookinfo.hookinst == 0xF4)
+	{
+		if (!CPU_STAT_PM || CPU_STAT_VM86)
+		{
+			UINT32 adrs;
+			adrs = CPU_PREV_EIP + (CPU_CS << 4);
+			if ((adrs >= 0xf8000) && (adrs < 0x100000))
+			{
+				ia32_bioscall();
+				return;
+			}
+		}
+	}
+#endif
 
 	if (CPU_STAT_PM && CPU_STAT_CPL != 0) {
 		VERBOSE(("HLT: CPL(%d) != 0", CPU_STAT_CPL));
@@ -1144,39 +1161,18 @@ int gameport_tsccounter = 0;
 void
 RDTSC(void)
 {
-#if defined(USE_TSC)
-#if defined(NP2_X) || defined(NP2_SDL) || defined(__LIBRETRO__)
-#if defined(SUPPORT_ASYNC_CPU)
-	if(np2cfg.consttsc){
-		// CPUクロックに依存しないカウンタ値にする
-		UINT64 tsc_tmp;
-		if(CPU_REMCLOCK != -1){
-			tsc_tmp = CPU_MSR_TSC - CPU_REMCLOCK * pccore.maxmultiple / pccore.multiple;
-		}else{
-			tsc_tmp = CPU_MSR_TSC;
-		}
-		CPU_EDX = ((tsc_tmp >> 32) & 0xffffffff);
-		CPU_EAX = (tsc_tmp & 0xffffffff);
+#if 1
+	// CPUクロックに依存しないカウンタ値にする
+	UINT64 tsc_tmp;
+	if(CPU_REMCLOCK != -1){
+		//tsc_tmp = CPU_MSR_TSC - CPU_REMCLOCK * pccore.maxmultiple / pccore.multiple;
+		tsc_tmp = CPU_MSR_TSC - CPU_REMCLOCK;
 	}else{
-#endif
-		// CPUクロックに依存するカウンタ値にする
-		static UINT64 tsc_last = 0;
-		static UINT64 tsc_cur = 0;
-		UINT64 tsc_tmp;
-		if(CPU_REMCLOCK != -1){
-			tsc_tmp = CPU_MSR_TSC - CPU_REMCLOCK * pccore.maxmultiple / pccore.multiple;
-		}else{
-			tsc_tmp = CPU_MSR_TSC;
-		}
-		tsc_cur += (tsc_tmp - tsc_last) * pccore.multiple / pccore.maxmultiple;
-		tsc_last = tsc_tmp;
-		CPU_EDX = ((tsc_cur >> 32) & 0xffffffff);
-		CPU_EAX = (tsc_cur & 0xffffffff);
-#if defined(SUPPORT_ASYNC_CPU)
+		tsc_tmp = CPU_MSR_TSC;
 	}
-#endif
+	CPU_EDX = ((tsc_tmp >> 32) & 0xffffffff);
 #else
-#if defined(SUPPORT_IA32_HAXM)
+#if defined(SUPPORT_IA32_HAXM)&&defined(_WIN32)
 	LARGE_INTEGER li = {0};
 	LARGE_INTEGER qpf;
 	QueryPerformanceCounter(&li);
@@ -1185,10 +1181,7 @@ RDTSC(void)
 	}
 	CPU_EDX = li.HighPart;
 	CPU_EAX = li.LowPart;
-#endif
-#endif
 #else
-#if defined(SUPPORT_ASYNC_CPU)
 	if(np2cfg.consttsc){
 		// CPUクロックに依存しないカウンタ値にする
 		UINT64 tsc_tmp;
@@ -1200,7 +1193,6 @@ RDTSC(void)
 		CPU_EDX = ((tsc_tmp >> 32) & 0xffffffff);
 		CPU_EAX = (tsc_tmp & 0xffffffff);
 	}else{
-#endif
 		// CPUクロックに依存するカウンタ値にする
 		static UINT64 tsc_last = 0;
 		static UINT64 tsc_cur = 0;
@@ -1214,11 +1206,10 @@ RDTSC(void)
 		tsc_last = tsc_tmp;
 		CPU_EDX = ((tsc_cur >> 32) & 0xffffffff);
 		CPU_EAX = (tsc_cur & 0xffffffff);
-#if defined(SUPPORT_ASYNC_CPU)
 	}
-#endif
 #if defined(SUPPORT_GAMEPORT)
 	if(gameport_tsccounter < INT_MAX) gameport_tsccounter++;
+#endif
 #endif
 #endif
 //	ia32_panic("RDTSC: not implemented yet!");

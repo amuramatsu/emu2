@@ -37,13 +37,7 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #ifndef softfloat_types_h
 #define softfloat_types_h 1
 
-#include "compiler_base.h"
-#ifdef BYTESEX_LITTLE
 #define LITTLEENDIAN 1
-#endif
-#ifdef BYTESEX_BIG
-#undef LITTLEENDIAN
-#endif
 #define SOFTFLOAT_FAST_INT64
 
 #include <stdint.h>
