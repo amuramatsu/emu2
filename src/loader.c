@@ -900,6 +900,8 @@ int dos_load_exe(FILE *f, uint16_t psp_mcb)
 
         // Fill top program address in PSP
         put16(psp_mcb * 16 + 16 + 2, psp_mcb + mcb_size(psp_mcb) + 1);
+        // put 0 for CP/M-80 compatibility
+        put16(psp_mcb * 16 + 16 + 65536 - 2, 0);
 
         cpuSetIP(0x100);
         cpuSetCS(psp_mcb + 1);
