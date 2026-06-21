@@ -2878,11 +2878,18 @@ int intr21(void)
     case 0x32:          // get Drive Parameter Block
         cpuSetAL(0xFF); // return as Network drive
         break;
-    case 0x33: // BREAK SETTINGS
+    case 0x33: // BREAK SETTINGS or etc.
         if(ax == 0x3300)
             cpuSetDX((cpuGetDX() & 0xFF00) | 1);
         else if(ax == 0x3301)
             cpuSetDX((cpuGetDX() & 0xFF00) | 1); // Ignore new state
+        else if(ax == 0x3305) // Get boot drive
+            cpuSetDX(3); // Always C:
+        else if(ax == 0x3306) // Get true DOS version
+        {
+            cpuSetBX(dosver);
+            cpuSetDX(0x0000);
+        }
         break;
     case 0x34: // get Indos flag address
         cpuSetES(indos_flag >> 4);
