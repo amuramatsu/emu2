@@ -117,6 +117,8 @@ ia32reset(void)
 		ia32hax_copyregHAXtoNP2();
 	}
 #endif
+	// MMIOマップリセット
+	memp_mmio_map_reset();
 }
 
 void
@@ -140,8 +142,12 @@ ia32shut(void)
 void
 ia32a20enable(BOOL enable)
 {
+	UINT32 newmask = (enable) ? 0xffffffff : 0x000fffff;
 
-	CPU_ADRSMASK = (enable)?0xffffffff:0x00ffffff;
+	if (CPU_ADRSMASK != newmask) {
+		CPU_ADRSMASK = newmask;
+		tlb_flush_all();
+	}
 }
 
 //#pragma optimize("", off)
@@ -188,7 +194,7 @@ extern void emu2_hook(void);
 void
 ia32_step(void)
 {
-	static volatile int PREV_T_FLAG = 0;
+	static volatile int PREV_T_FLAG = 1;
 	switch (sigsetjmp(exec_1step_jmpbuf, 1)) {
 	case 0:
 		break;
@@ -213,7 +219,7 @@ ia32_step(void)
 			CPU_DR6 |= CPU_DR6_BS;
 			INTERRUPT(1, INTR_TYPE_EXCEPTION);
 		}
-		PREV_T_FLAG = (CPU_FLAG & T_FLAG) != 0;
+		//PREV_T_FLAG = (CPU_FLAG & T_FLAG) != 0;
 		//if (dmac.working) {
 		//	dmax86();
 		//}

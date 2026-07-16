@@ -8,6 +8,7 @@
 #include <setjmp.h>
 #include <string.h>
 #include <stdarg.h>
+#include <limits.h>
 
 #define USE_TSC 1
 #define USE_FPU 1

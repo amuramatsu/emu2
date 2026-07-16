@@ -178,6 +178,11 @@ void init_cpu(void)
     ia32reset();
 }
 
+void cpuSetAddressMask(uint32_t mask)
+{
+	CPU_ADRSMASK = mask;
+}
+
 // Register reading/writing
 void cpuSetAL(unsigned v) { CPU_AL = v; }
 void cpuSetAX(unsigned v) { CPU_AX = v; }

@@ -57,6 +57,9 @@ static uint16_t emb_lasthandle;
 static int a20_enabled = 0;
 uint32_t memory_mask = 0xFFFFF;
 uint32_t memory_limit = 0xFFFFF;
+#ifdef IA32
+extern void cpuSetAddressMask(uint32_t mask);
+#endif
 
 static const uint8_t xms_entry_stub[] = {
     0xcd, 0xfe, // int 0feh
@@ -166,6 +169,9 @@ void set_a20_enable(int enable)
         memory_mask = memory_limit;
     else
         memory_mask = 0xfffff;
+#ifdef IA32
+    cpuSetAddressMask(memory_mask);
+#endif
     debug(debug_int, "--A20 mask %08x--\n", memory_mask);
 }
 
