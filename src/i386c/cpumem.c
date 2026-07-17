@@ -34,7 +34,7 @@ extern uint32_t memory_mask;
 /*
  * -- Fast-path MMIO guard table --
  *
- * The fast CPU memory path may directly access mem or CPU_EXTMEMBASE. 
+ * The fast CPU memory path may directly access mem.
  * Devices whose MMIO/VRAM windows overlap that address space must mark the corresponding blocks here.
  *
  * Granularity:
@@ -76,35 +76,20 @@ extern uint32_t memory_mask;
 #define MEMP_ALIGN_CACHE __attribute__((aligned(64)))
 #endif
 
-//static MEMP_ALIGN_CACHE unsigned int memp_fastmmio_low[MEMP_FASTMMIO_LOW_COUNT];
-static MEMP_ALIGN_CACHE unsigned int memp_fastmmio_mid[MEMP_FASTMMIO_MID_COUNT];
-static MEMP_ALIGN_CACHE unsigned int memp_fastmmio_high[MEMP_FASTMMIO_HIGH_COUNT];
-
-MEMP_FASTMMIO_INLINE UINT32 memp_fastmmio_block_end(UINT32 address)
-{
-	if (address < MEMP_FASTMMIO_LOW_LIMIT) {
-		return address | ((1UL << MEMP_FASTMMIO_LOW_SHIFT) - 1);
-	}
-	if (address < MEMP_FASTMMIO_MID_LIMIT) {
-		return address | ((1UL << MEMP_FASTMMIO_MID_SHIFT) - 1);
-	}
-	return address | ((1UL << MEMP_FASTMMIO_HIGH_SHIFT) - 1);
-}
-
 // 指定アドレスが直接アクセス可能かどうか調べる　OK=0、不可=0以外
-MEMP_FASTMMIO_INLINE int memp_fastmmio_addr_is_marked(UINT32 address)
+MEMP_FASTMMIO_INLINE int
+memp_fastmmio_addr_is_marked(UINT32 address)
 {
-	if (address < MEMP_FASTMMIO_LOW_LIMIT) {
-		return 1; // 常時低速アクセスとする I286_MEMWRITEMAX未満はここではなく別途判定される
-	}
-	if (address < MEMP_FASTMMIO_MID_LIMIT) {
-		return memp_fastmmio_mid[(address - MEMP_FASTMMIO_LOW_LIMIT) >> MEMP_FASTMMIO_MID_SHIFT] != 0;
-	}
-	return memp_fastmmio_high[address >> MEMP_FASTMMIO_HIGH_SHIFT] != 0;
+#ifdef EMS_SUPPORT
+	return in_ems_pageframe(address);
+#else
+	return 0;
+#endif
 }
 
 // 指定アドレス範囲が直接アクセス可能かどうか調べる　OK=0、不可=0以外
-MEMP_FASTMMIO_INLINE int memp_fastmmio_range_is_marked(UINT32 address, int size)
+MEMP_FASTMMIO_INLINE int
+memp_fastmmio_range_is_marked(UINT32 address, int size)
 {
 	// XXX: 開始アドレスしか見ていないので途中からMMIOアドレスに入るとおかしくなるがそんな変なアクセスはしないと信じる
 	return memp_fastmmio_addr_is_marked(address);
@@ -113,137 +98,38 @@ MEMP_FASTMMIO_INLINE int memp_fastmmio_range_is_marked(UINT32 address, int size)
 	//return memp_fastmmio_addr_is_marked(address) || memp_fastmmio_addr_is_marked(address + size - 1);
 }
 
-// MMIOアクセステーブル　インクリメント
-static void memp_fastmmio_block_inc(UINT32 address)
-{
-	UINT idx;
-
-	if (address < MEMP_FASTMMIO_LOW_LIMIT) {
-		// 特殊判定されるので登録不要
-		//idx = (UINT)(address >> MEMP_FASTMMIO_LOW_SHIFT);
-		//if (memp_fastmmio_low[idx] != 0xff) memp_fastmmio_low[idx]++;
-		return;
-	}
-	if (address < MEMP_FASTMMIO_MID_LIMIT) {
-		idx = (UINT)((address - MEMP_FASTMMIO_LOW_LIMIT) >> MEMP_FASTMMIO_MID_SHIFT);
-		if (memp_fastmmio_mid[idx] != UINT_MAX) memp_fastmmio_mid[idx]++;
-		return;
-	}
-	idx = (UINT)(address >> MEMP_FASTMMIO_HIGH_SHIFT);
-	if (memp_fastmmio_high[idx] != UINT_MAX) memp_fastmmio_high[idx]++;
-}
-// MMIOアクセステーブル　デクリメント
-static void memp_fastmmio_block_dec(UINT32 address)
-{
-	UINT idx;
-
-	if (address < MEMP_FASTMMIO_LOW_LIMIT) {
-		// 特殊判定されるので登録不要
-		//idx = (UINT)(address >> MEMP_FASTMMIO_LOW_SHIFT);
-		//if (memp_fastmmio_low[idx] != 0) memp_fastmmio_low[idx]--;
-		return;
-	}
-	if (address < MEMP_FASTMMIO_MID_LIMIT) {
-		idx = (UINT)((address - MEMP_FASTMMIO_LOW_LIMIT) >> MEMP_FASTMMIO_MID_SHIFT);
-		if (memp_fastmmio_mid[idx] != 0) memp_fastmmio_mid[idx]--;
-		return;
-	}
-	idx = (UINT)(address >> MEMP_FASTMMIO_HIGH_SHIFT);
-	if (memp_fastmmio_high[idx] != 0) memp_fastmmio_high[idx]--;
-}
 // MMIOアクセスマップに直接アクセス不可領域を登録　カウンタ管理なので重複登録されてもよい
-void MEMCALL memp_mmio_range_add(UINT32 address, UINT32 leng)
+void MEMCALL
+memp_mmio_range_add(UINT32 address, UINT32 leng)
 {
-	UINT32 end;
-	UINT32 bend;
-
-	if (!leng) return;
-	end = address + leng - 1;
-	if (end < address) end = 0xffffffffUL;
-	for (;;) {
-		memp_fastmmio_block_inc(address);
-		bend = memp_fastmmio_block_end(address);
-		if (bend >= end || bend == 0xffffffffUL) break;
-		address = bend + 1;
-	}
-	tlb_flush_all(); // メモリ直接アクセス可能かが変わり得るのでTLBクリア
+	/*NOP*/
 }
 // MMIOアクセスマップから直接アクセス不可領域を削除
-void MEMCALL memp_mmio_range_remove(UINT32 address, UINT32 leng)
+void MEMCALL
+memp_mmio_range_remove(UINT32 address, UINT32 leng)
 {
-	UINT32 end;
-	UINT32 bend;
-
-	if (!leng) return;
-	end = address + leng - 1;
-	if (end < address) end = 0xffffffffUL;
-	for (;;) {
-		memp_fastmmio_block_dec(address);
-		bend = memp_fastmmio_block_end(address);
-		if (bend >= end || bend == 0xffffffffUL) break;
-		address = bend + 1;
-	}
-	tlb_flush_all(); // メモリ直接アクセス可能かが変わり得るのでTLBクリア
+	/*NOP*/
 }
-// MMIOアクセスマップ初期化　ついでに怪しい領域は先に登録しておく
-void MEMCALL memp_mmio_map_reset(void)
-{
-	//ZeroMemory(memp_fastmmio_low, sizeof(memp_fastmmio_low));
-	ZeroMemory(memp_fastmmio_mid, sizeof(memp_fastmmio_mid));
-	ZeroMemory(memp_fastmmio_high, sizeof(memp_fastmmio_high));
 
-	// 駄目な可能性がある範囲は事前登録
-	memp_mmio_range_add(I286_MEMWRITEMAX, USE_HIMEM - I286_MEMWRITEMAX); // I286_MEMWRITEMAX 〜 USE_HIMEM
-	memp_mmio_range_add(I286_MEMREADMAX, USE_HIMEM - I286_MEMREADMAX); // I286_MEMREADMAX 〜 USE_HIMEM
-	if (CPU_EXTLIMIT16 > USE_HIMEM) {
-		if (0x00f00000 > CPU_EXTLIMIT16) {
-			memp_mmio_range_add(CPU_EXTLIMIT16, 0x00f00000 - CPU_EXTLIMIT16); // 0x00f00000 〜 CPU_EXTLIMIT16
-		}
-		memp_mmio_range_add(0x00f00000, 0x01000000 - 0x00f00000);
-	}
-#if defined(CPU_EXTLIMIT)
-	memp_mmio_range_add(CPU_EXTLIMIT, 0 - CPU_EXTLIMIT); // メモリがない領域
-#else
-	memp_mmio_range_add(0x01000000, 0 - 0x01000000); // 16MB超えは全部メモリ無し
-#endif
+// MMIOアクセスマップ初期化　ついでに怪しい領域は先に登録しておく
+void MEMCALL
+memp_mmio_map_reset(void)
+{
+	/*NOP*/
 }
 
 // ページング時にメモリ直接アクセス可能かどうか調べて可能ならポインタを返す。不可ならNULLを返す。
 // 複雑な判定は止めて少しでも怪しければNULLを返す
-UINT8 * MEMCALL memp_get_direct_host_page(UINT32 address)
+UINT8 * MEMCALL
+memp_get_direct_host_page(UINT32 address)
 {
-	if (address < I286_MEMWRITEMAX && address + CPU_PAGE_SIZE < I286_MEMWRITEMAX) { 
-		return mem + address; // I286_MEMWRITEMAX未満は安全。I286_MEMREADMAXよりI286_MEMWRITEMAXの方が小さいので小さい方で判定
-	}
-	address &= CPU_ADRSMASK;
-	address &= 0xfffff000UL;
-
-	// NG領域を事前判定
-	if (CPU_EXTMEMBASE == NULL) {
-		return NULL; // 拡張メモリ無しは不可
-	}
-	if (address < USE_HIMEM) {
-		return NULL; // HIMEM未満は複雑なので全部不可とする
-	}
-	if (address >= CPU_EXTLIMIT16) { // 16MB以内メモリ領域を超えていたら追加判定
-		if (address < 0x00100000UL) {
-			return NULL; // CPU_EXTLIMIT16以上0x100000未満はメモリ無しなので不可。16MB超えのメモリを積んでいたらCPU_EXTLIMIT16==0x100000なのでここには来ない
-		}
-		if ((address + CPU_PAGE_SIZE) < address) {
-			return NULL; // ページサイズを足してオーバーフローするメモリアドレスは不可
-		}
-#if defined(CPU_EXTLIMIT)
-		if ((address + CPU_PAGE_SIZE) > CPU_EXTLIMIT) {
-			return NULL; // 全メモリ容量超えの領域も不可とする
-		}
-#endif
-	}
+	address &= memory_mask;
 	// 高速MMIOアクセステーブルで判定
 	if (memp_fastmmio_addr_is_marked(address) ||
 		memp_fastmmio_addr_is_marked(address + (CPU_PAGE_SIZE - 1))) {
 		return NULL;
 	}
-	return CPU_EXTMEMBASE + address;
+	return memory + address;
 }
 
 // ---- MAIN
@@ -568,88 +454,32 @@ void MEMCALL
 memp_reads(UINT32 address, void *dat, UINT leng)
 {
 	UINT8 *out = (UINT8 *)dat;
-#if 0
-	UINT diff;
-	
-	/* fast memory access */
-	if ((address + leng) < I286_MEMREADMAX) {
-		CopyMemory(dat, mem + address, leng);
+#ifdef EMS_SUPPORT
+	if (in_ems_pageframe2(address, leng)) {
+		/* slow memory access */
+		while (leng-- > 0) {
+			*out++ = memp_read8(address++);
+		}
 		return;
 	}
-	address = address & CPU_ADRSMASK;
-	if ((address >= USE_HIMEM) && (address < CPU_EXTLIMIT16)) {
-		diff = CPU_EXTLIMIT16 - address;
-		if (diff >= leng) {
-			CopyMemory(dat, CPU_EXTMEMBASE + address, leng);
-			return;
-		}
-		CopyMemory(dat, CPU_EXTMEMBASE + address, diff);
-		out += diff;
-		leng -= diff;
-		address += diff;
-	}
-
-	/* XXX: Cirrusを無視しているがCirrusはmemp_readsを呼ばないのでOK */
-	if ((address >= 0x01000000) && (address < CPU_EXTLIMIT)) {
-		diff = CPU_EXTLIMIT - address;
-		if (diff >= leng) {
-			CopyMemory(dat, CPU_EXTMEMBASE + address, leng);
-			return;
-		}
-		CopyMemory(dat, CPU_EXTMEMBASE + address, diff);
-		out += diff;
-		leng -= diff;
-		address += diff;
-	}
 #endif
-	/* slow memory access */
-	while (leng-- > 0) {
-		*out++ = memp_read8(address++);
-	}
+	memcpy(out, memory + address, leng);
 }
 
 void MEMCALL
 memp_writes(UINT32 address, const void *dat, UINT leng)
 {
-	const UINT8 *out = (UINT8 *)dat;
-#if 0
-	UINT diff;
-
-	/* fast memory access */
-	if ((address + leng) < I286_MEMREADMAX) {
-		CopyMemory(mem + address, dat, leng);
+	const UINT8 *inp = (UINT8 *)dat;
+#ifdef EMS_SUPPORT
+	if (in_ems_pageframe2(address, leng)) {
+		/* slow memory access */
+		while (leng-- > 0) {
+			memp_write8(address++, *inp++);
+		}
 		return;
 	}
-	address = address & CPU_ADRSMASK;
-	if ((address >= USE_HIMEM) && (address < CPU_EXTLIMIT16)) {
-		diff = CPU_EXTLIMIT16 - address;
-		if (diff >= leng) {
-			CopyMemory(CPU_EXTMEMBASE + address, dat, leng);
-			return;
-		}
-		CopyMemory(CPU_EXTMEMBASE + address, dat, diff);
-		out += diff;
-		leng -= diff;
-		address += diff;
-	}
-
-	/* XXX: Cirrusを無視しているがCirrusはmemp_writesを呼ばないのでOK */
-	if ((address >= 0x01000000) && (address < CPU_EXTLIMIT)) {
-		diff = CPU_EXTLIMIT - address;
-		if (diff >= leng) {
-			CopyMemory(CPU_EXTMEMBASE + address, dat, leng);
-			return;
-		}
-		CopyMemory(CPU_EXTMEMBASE + address, dat, diff);
-		out += diff;
-		leng -= diff;
-		address += diff;
-	}
 #endif
-	/* slow memory access */
-	while (leng-- > 0) {
-		memp_write8(address++, *out++);
-	}
+	memcpy(memory + address, inp, leng);
 }
 
 
