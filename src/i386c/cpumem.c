@@ -91,11 +91,11 @@ memp_fastmmio_addr_is_marked(UINT32 address)
 MEMP_FASTMMIO_INLINE int
 memp_fastmmio_range_is_marked(UINT32 address, int size)
 {
-	// XXX: 開始アドレスしか見ていないので途中からMMIOアドレスに入るとおかしくなるがそんな変なアクセスはしないと信じる
-	return memp_fastmmio_addr_is_marked(address);
+	// XXX: 開始アドレスしか見ていないので途中からMMIOアドレスに入るとおかしくなるがそんな変なアクセスはしないと信じる → 残念ながらありました
+	//return memp_fastmmio_addr_is_marked(address);
 
 	// 厳密に判定したければこっち
-	//return memp_fastmmio_addr_is_marked(address) || memp_fastmmio_addr_is_marked(address + size - 1);
+	return memp_fastmmio_addr_is_marked(address) || memp_fastmmio_addr_is_marked(address + size - 1);
 }
 
 // MMIOアクセスマップに直接アクセス不可領域を登録　カウンタ管理なので重複登録されてもよい
