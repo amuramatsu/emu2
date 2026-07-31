@@ -245,40 +245,6 @@ task_switch(selector_t *task_sel, task_switch_type_t type)
 	}
 #endif
 
-	/* load task state */
-	if (!task16) {
-		cr3 = cpu_kmemoryread_d(task_base + 28);
-		eip = cpu_kmemoryread_d(task_base + 32);
-		new_flags = cpu_kmemoryread_d(task_base + 36);
-		for (i = 0; i < CPU_REG_NUM; i++) {
-			regs[i] = cpu_kmemoryread_d(task_base + 40 + i * 4);
-		}
-		for (i = 0; i < CPU_SEGREG_NUM; i++) {
-			sreg[i] = cpu_kmemoryread_w(task_base + 72 + i * 4);
-		}
-		ldtr = cpu_kmemoryread_w(task_base + 96);
-		t = cpu_kmemoryread_w(task_base + 100);
-		if (t & 1) {
-			CPU_STAT_BP_EVENT |= CPU_STAT_BP_EVENT_TASK;
-		}
-		iobase = cpu_kmemoryread_w(task_base + 102);
-	} else {
-		eip = cpu_kmemoryread_w(task_base + 14);
-		new_flags = cpu_kmemoryread_w(task_base + 16);
-		for (i = 0; i < CPU_REG_NUM; i++) {
-			regs[i] = cpu_kmemoryread_w(task_base + 18 + i * 2);
-		}
-		for (i = 0; i < CPU_SEGREG286_NUM; i++) {
-			sreg[i] = cpu_kmemoryread_w(task_base + 34 + i * 2);
-		}
-		for (; i < CPU_SEGREG_NUM; i++) {
-			sreg[i] = 0;
-		}
-		ldtr = cpu_kmemoryread_w(task_base + 42);
-		iobase = 0;
-		t = 0;
-	}
-
 #if defined(DEBUG)
 	VERBOSE(("task_switch: current task"));
 	if (!task16) {
@@ -295,24 +261,6 @@ task_switch(selector_t *task_sel, task_switch_type_t type)
 		    CPU_REGS_SREG(i)));
 	}
 	VERBOSE(("task_switch: ldtr    = 0x%04x", CPU_LDTR));
-
-	VERBOSE(("task_switch: new task"));
-	if (!task16) {
-		VERBOSE(("task_switch: CR3     = 0x%08x", cr3));
-	}
-	VERBOSE(("task_switch: eip     = 0x%08x", eip));
-	VERBOSE(("task_switch: eflags  = 0x%08x", new_flags));
-	for (i = 0; i < CPU_REG_NUM; i++) {
-		VERBOSE(("task_switch: %s = 0x%08x", reg32_str[i], regs[i]));
-	}
-	for (i = 0; i < CPU_SEGREG_NUM; i++) {
-		VERBOSE(("task_switch: %s = 0x%04x", sreg_str[i], sreg[i]));
-	}
-	VERBOSE(("task_switch: ldtr    = 0x%04x", ldtr));
-	if (!task16) {
-		VERBOSE(("task_switch: t       = 0x%04x", t));
-		VERBOSE(("task_switch: iobase  = 0x%04x", iobase));
-	}
 #endif
 
 	/* if IRET or JMP, clear busy flag in this task: need */
@@ -389,6 +337,60 @@ task_switch(selector_t *task_sel, task_switch_type_t type)
 #endif
 
 	/* Now task switching! */
+	/* load task state */
+	if (!task16) {
+		if (CPU_STAT_PAGING) {
+			cr3 = cpu_kmemoryread_d(task_base + 28);
+		}
+		eip = cpu_kmemoryread_d(task_base + 32);
+		new_flags = cpu_kmemoryread_d(task_base + 36);
+		for (i = 0; i < CPU_REG_NUM; i++) {
+			regs[i] = cpu_kmemoryread_d(task_base + 40 + i * 4);
+		}
+		for (i = 0; i < CPU_SEGREG_NUM; i++) {
+			sreg[i] = cpu_kmemoryread_w(task_base + 72 + i * 4);
+		}
+		ldtr = cpu_kmemoryread_w(task_base + 96);
+		t = cpu_kmemoryread_w(task_base + 100);
+		if (t & 1) {
+			CPU_STAT_BP_EVENT |= CPU_STAT_BP_EVENT_TASK;
+		}
+		iobase = cpu_kmemoryread_w(task_base + 102);
+	} else {
+		eip = cpu_kmemoryread_w(task_base + 14);
+		new_flags = cpu_kmemoryread_w(task_base + 16);
+		for (i = 0; i < CPU_REG_NUM; i++) {
+			regs[i] = cpu_kmemoryread_w(task_base + 18 + i * 2);
+		}
+		for (i = 0; i < CPU_SEGREG286_NUM; i++) {
+			sreg[i] = cpu_kmemoryread_w(task_base + 34 + i * 2);
+		}
+		for (; i < CPU_SEGREG_NUM; i++) {
+			sreg[i] = 0;
+		}
+		ldtr = cpu_kmemoryread_w(task_base + 42);
+		iobase = 0;
+		t = 0;
+	}
+#if defined(DEBUG)
+	VERBOSE(("task_switch: new task"));
+	if (!task16) {
+		VERBOSE(("task_switch: CR3     = 0x%08x", cr3));
+	}
+	VERBOSE(("task_switch: eip     = 0x%08x", eip));
+	VERBOSE(("task_switch: eflags  = 0x%08x", new_flags));
+	for (i = 0; i < CPU_REG_NUM; i++) {
+		VERBOSE(("task_switch: %s = 0x%08x", reg32_str[i], regs[i]));
+	}
+	for (i = 0; i < CPU_SEGREG_NUM; i++) {
+		VERBOSE(("task_switch: %s = 0x%04x", sreg_str[i], sreg[i]));
+	}
+	VERBOSE(("task_switch: ldtr    = 0x%04x", ldtr));
+	if (!task16) {
+		VERBOSE(("task_switch: t       = 0x%04x", t));
+		VERBOSE(("task_switch: iobase  = 0x%04x", iobase));
+	}
+#endif
 
 	/* if CALL, INTR, set EFLAGS image NT_FLAG */
 	/* if CALL, INTR, JMP set busy flag */

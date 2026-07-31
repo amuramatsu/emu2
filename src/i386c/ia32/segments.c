@@ -185,7 +185,7 @@ load_ldtr(UINT16 selector, int exc)
 		EXCEPTION((exc == TS_EXCEPTION) ? TS_EXCEPTION : NP_EXCEPTION, sel.idx);
 	}
 
-#if defined(MORE_DEBUG)
+#if 0 && defined(MORE_DEBUG) // some program load invalid LDT table
 	ldtr_dump(sel.desc.u.seg.segbase, sel.desc.u.seg.limit);
 #endif
 
