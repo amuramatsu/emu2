@@ -251,13 +251,20 @@ fpu_reg2str(void)
  * FPU memory access function
  */
 #if defined(USE_FPU)
+static INLINE void
+fpu_set_dataptr(UINT16 seg, UINT32 address)
+{
+	FPU_DATAPTR_SEG = CPU_REGS_SREG(seg);
+	FPU_DATAPTR_OFFSET = address;
+}
+
 UINT8 MEMCALL
 fpu_memoryread_b(UINT32 address)
 {
 	UINT16 seg;
 
-	FPU_DATAPTR_SEG = seg = CPU_INST_SEGREG_INDEX;
-	FPU_DATAPTR_OFFSET = address;
+	seg = CPU_INST_SEGREG_INDEX;
+	fpu_set_dataptr(seg, address);
 	return cpu_vmemoryread_b(seg, address);
 }
 
@@ -266,8 +273,8 @@ fpu_memoryread_w(UINT32 address)
 {
 	UINT16 seg;
 
-	FPU_DATAPTR_SEG = seg = CPU_INST_SEGREG_INDEX;
-	FPU_DATAPTR_OFFSET = address;
+	seg = CPU_INST_SEGREG_INDEX;
+	fpu_set_dataptr(seg, address);
 	return cpu_vmemoryread_w(seg, address);
 }
 
@@ -276,8 +283,8 @@ fpu_memoryread_d(UINT32 address)
 {
 	UINT16 seg;
 
-	FPU_DATAPTR_SEG = seg = CPU_INST_SEGREG_INDEX;
-	FPU_DATAPTR_OFFSET = address;
+	seg = CPU_INST_SEGREG_INDEX;
+	fpu_set_dataptr(seg, address);
 	return cpu_vmemoryread_d(seg, address);
 }
 
@@ -286,8 +293,8 @@ fpu_memoryread_q(UINT32 address)
 {
 	UINT16 seg;
 
-	FPU_DATAPTR_SEG = seg = CPU_INST_SEGREG_INDEX;
-	FPU_DATAPTR_OFFSET = address;
+	seg = CPU_INST_SEGREG_INDEX;
+	fpu_set_dataptr(seg, address);
 	return cpu_vmemoryread_q(seg, address);
 }
 
@@ -296,8 +303,8 @@ fpu_memoryread_f(UINT32 address)
 {
 	UINT16 seg;
 
-	FPU_DATAPTR_SEG = seg = CPU_INST_SEGREG_INDEX;
-	FPU_DATAPTR_OFFSET = address;
+	seg = CPU_INST_SEGREG_INDEX;
+	fpu_set_dataptr(seg, address);
 	return cpu_vmemoryread_f(seg, address);
 }
 
@@ -310,8 +317,8 @@ fpu_memoryread_f32(UINT32 address)
 		UINT32 l;
 	} val;
 
-	FPU_DATAPTR_SEG = seg = CPU_INST_SEGREG_INDEX;
-	FPU_DATAPTR_OFFSET = address;
+	seg = CPU_INST_SEGREG_INDEX;
+	fpu_set_dataptr(seg, address);
 	val.l = cpu_vmemoryread_d(seg, address);
 	return val.f;
 }
@@ -325,8 +332,8 @@ fpu_memoryread_f64(UINT32 address)
 		UINT64 q;
 	} val;
 
-	FPU_DATAPTR_SEG = seg = CPU_INST_SEGREG_INDEX;
-	FPU_DATAPTR_OFFSET = address;
+	seg = CPU_INST_SEGREG_INDEX;
+	fpu_set_dataptr(seg, address);
 	val.q = cpu_vmemoryread_q(seg, address);
 	return val.f;
 }
@@ -336,8 +343,8 @@ fpu_memorywrite_b(UINT32 address, UINT8 value)
 {
 	UINT16 seg;
 
-	FPU_DATAPTR_SEG = seg = CPU_INST_SEGREG_INDEX;
-	FPU_DATAPTR_OFFSET = address;
+	seg = CPU_INST_SEGREG_INDEX;
+	fpu_set_dataptr(seg, address);
 	cpu_vmemorywrite_b(seg, address, value);
 }
 
@@ -346,8 +353,8 @@ fpu_memorywrite_w(UINT32 address, UINT16 value)
 {
 	UINT16 seg;
 
-	FPU_DATAPTR_SEG = seg = CPU_INST_SEGREG_INDEX;
-	FPU_DATAPTR_OFFSET = address;
+	seg = CPU_INST_SEGREG_INDEX;
+	fpu_set_dataptr(seg, address);
 	cpu_vmemorywrite_w(seg, address, value);
 }
 
@@ -356,8 +363,8 @@ fpu_memorywrite_d(UINT32 address, UINT32 value)
 {
 	UINT16 seg;
 
-	FPU_DATAPTR_SEG = seg = CPU_INST_SEGREG_INDEX;
-	FPU_DATAPTR_OFFSET = address;
+	seg = CPU_INST_SEGREG_INDEX;
+	fpu_set_dataptr(seg, address);
 	cpu_vmemorywrite_d(seg, address, value);
 }
 
@@ -366,8 +373,8 @@ fpu_memorywrite_q(UINT32 address, UINT64 value)
 {
 	UINT16 seg;
 
-	FPU_DATAPTR_SEG = seg = CPU_INST_SEGREG_INDEX;
-	FPU_DATAPTR_OFFSET = address;
+	seg = CPU_INST_SEGREG_INDEX;
+	fpu_set_dataptr(seg, address);
 	cpu_vmemorywrite_q(seg, address, value);
 }
 
@@ -376,8 +383,8 @@ fpu_memorywrite_f(UINT32 address, REG80 *value)
 {
 	UINT16 seg;
 
-	FPU_DATAPTR_SEG = seg = CPU_INST_SEGREG_INDEX;
-	FPU_DATAPTR_OFFSET = address;
+	seg = CPU_INST_SEGREG_INDEX;
+	fpu_set_dataptr(seg, address);
 	cpu_vmemorywrite_f(seg, address, value);
 }
 
@@ -392,8 +399,8 @@ fpu_memorywrite_f32(UINT32 address, float value)
 
 	val.f = value;
 
-	FPU_DATAPTR_SEG = seg = CPU_INST_SEGREG_INDEX;
-	FPU_DATAPTR_OFFSET = address;
+	seg = CPU_INST_SEGREG_INDEX;
+	fpu_set_dataptr(seg, address);
 	cpu_vmemorywrite_d(seg, address, val.l);
 }
 
@@ -408,8 +415,8 @@ fpu_memorywrite_f64(UINT32 address, double value)
 
 	val.f = value;
 
-	FPU_DATAPTR_SEG = seg = CPU_INST_SEGREG_INDEX;
-	FPU_DATAPTR_OFFSET = address;
+	seg = CPU_INST_SEGREG_INDEX;
+	fpu_set_dataptr(seg, address);
 	cpu_vmemorywrite_q(seg, address, val.q);
 }
 #endif

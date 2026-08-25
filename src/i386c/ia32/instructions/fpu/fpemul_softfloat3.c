@@ -42,13 +42,13 @@
 #include "ia32/instructions/sse/sse.h"
 #endif
 
-// softfloat.h‚ÌƒCƒ“ƒNƒ‹[ƒh‚Ícpu.h‚É‚ ‚è‚Ü‚·
+// softfloat.hã®ã‚¤ãƒ³ã‚¯ãƒ«ãƒ¼ãƒ‰ã¯cpu.hã«ã‚ã‚Šã¾ã™
 
  /*
  Short Real
-	31: sign (•„†)
- 30-23: exp-8 (w”•”: exponet)
- 22-00: num-23 (¬”•”)
+	31: sign (ç¬¦å·)
+ 30-23: exp-8 (æŒ‡æ•°éƒ¨: exponet)
+ 22-00: num-23 (å°æ•°éƒ¨)
 
  Long Real
 	63: sign
@@ -62,20 +62,20 @@
  62-00: num-63
 
  --
- w”•”:
- 2 ‚Ì 0 æ‚Ì‚Æ‚« 0111 1111 ‚Æ‚È‚é
- 1000 0001: +2 æ
- 1000 0000: +1 æ
- 0111 1111:  0 æ
- 0111 1110: -1 æ
+ æŒ‡æ•°éƒ¨:
+ 2 ã® 0 ä¹—ã®ã¨ã 0111 1111 ã¨ãªã‚‹
+ 1000 0001: +2 ä¹—
+ 1000 0000: +1 ä¹—
+ 0111 1111:  0 ä¹—
+ 0111 1110: -1 ä¹—
 
- ‰¼”•”:
- 2 ‚ğŠî”‚Æ‚µ‚Ä®”•”‚ªˆêŒ…‚É‚È‚é‚æ‚¤‚É³‹K‰»‚µ‚½”‚Ì 2 i”•\Œ»‚Æ‚È‚éB
- ³‹K‰»‚É‚æ‚Á‚Ä‰¼”•”‚ÌÅãˆÊƒrƒbƒg‚Íí‚É 1 ‚É‚È‚é‚Ì‚ÅÀÛ‚É—pˆÓ‚µ‚Ä‚¨‚­
- •K—v‚Í‚È‚­A”{¸“x‚Ì 52 ƒrƒbƒg‚Å‚ ‚ê‚ÎÅãˆÊ‚Ì 1 ‚ğ hidden bit ‚É‚µ‚Ä
- ŠÜ‚ß‚È‚¯‚ê‚ÎA53 ƒrƒbƒg•ª‚Ìî•ñ‚ªŠÜ‚Ü‚ê‚é‚±‚Æ‚É‚È‚éB
+ ä»®æ•°éƒ¨:
+ 2 ã‚’åŸºæ•°ã¨ã—ã¦æ•´æ•°éƒ¨ãŒä¸€æ¡ã«ãªã‚‹ã‚ˆã†ã«æ­£è¦åŒ–ã—ãŸæ•°ã® 2 é€²æ•°è¡¨ç¾ã¨ãªã‚‹ã€‚
+ æ­£è¦åŒ–ã«ã‚ˆã£ã¦ä»®æ•°éƒ¨ã®æœ€ä¸Šä½ãƒ“ãƒƒãƒˆã¯å¸¸ã« 1 ã«ãªã‚‹ã®ã§å®Ÿéš›ã«ç”¨æ„ã—ã¦ãŠã
+ å¿…è¦ã¯ãªãã€å€ç²¾åº¦ã® 52 ãƒ“ãƒƒãƒˆã§ã‚ã‚Œã°æœ€ä¸Šä½ã® 1 ã‚’ hidden bit ã«ã—ã¦
+ å«ã‚ãªã‘ã‚Œã°ã€53 ãƒ“ãƒƒãƒˆåˆ†ã®æƒ…å ±ãŒå«ã¾ã‚Œã‚‹ã“ã¨ã«ãªã‚‹ã€‚
 
- ¬”‚Ì“ñi”•\Œ»:
+ å°æ•°ã®äºŒé€²æ•°è¡¨ç¾:
  0.1000    1/2         = 0.5
  0.0100    1/(2*2)     = 0.25
  0.0010    1/(2*2*2)   = 0.125
@@ -143,28 +143,28 @@ static INLINE void FPU_SetCW(UINT16 cword)
 	default:
 		extF80_roundingPrecision = 80;
 		break;
-    }
+	}
 }
 
-static void FPU_ConvertToSoftFloatFlags() {
-	const UINT16 statusword = FPU_STATUSWORD;
-	UINT8 result = 0;
-	if (statusword & (1 << 0)) result |= softfloat_flag_invalid;
-	if (statusword & (1 << 2)) result |= softfloat_flag_infinite;
-	if (statusword & (1 << 3)) result |= softfloat_flag_overflow;
-	if (statusword & (1 << 4)) result |= softfloat_flag_underflow;
-	if (statusword & (1 << 5)) result |= softfloat_flag_inexact;
-	softfloat_exceptionFlags = result;
+/* SoftFloat reports exceptions raised by the current host-side operation.
+ * x87 exception flags are sticky, so each operation starts with an empty
+ * SoftFloat flag set and merges only newly raised exceptions into the x87
+ * status word when it completes. */
+static INLINE void FPU_SoftFloatBegin(void)
+{
+	softfloat_exceptionFlags = 0;
 }
-static void FPU_ConvertFromSoftFloatFlags() {
-	const UINT8 exceptionFlags = softfloat_exceptionFlags;
-	UINT16 result = 0;
-	if (exceptionFlags & softfloat_flag_invalid) result |= (1 << 0);
-	if (exceptionFlags & softfloat_flag_infinite) result |= (1 << 2);
-	if (exceptionFlags & softfloat_flag_overflow) result |= (1 << 3);
-	if (exceptionFlags & softfloat_flag_underflow) result |= (1 << 4);
-	if (exceptionFlags & softfloat_flag_inexact) result |= (1 << 5);
-	FPU_STATUSWORD = (FPU_STATUSWORD & ~0x3d) | result;
+
+static INLINE void FPU_SoftFloatEnd(void)
+{
+	const UINT8 flags = softfloat_exceptionFlags;
+	const UINT16 result = (UINT16)(
+		((flags & softfloat_flag_invalid) >> 4) |
+		((flags & softfloat_flag_infinite) >> 1) |
+		((flags & softfloat_flag_overflow) << 1) |
+		((flags & softfloat_flag_underflow) << 3) |
+		((flags & softfloat_flag_inexact) << 5));
+	FPU_STATUSWORD |= result;
 }
 
 static INLINE sw_extFloat80_t c_float_to_floatx80(float value) {
@@ -261,22 +261,22 @@ static INLINE sw_extFloat80_t floatx80_sqrt(sw_extFloat80_t a) {
  * FPU exception
  */
 
-static void
+static INLINE void
 fpu_check_NM_EXCEPTION(){
-	// ƒ^ƒXƒNƒXƒCƒbƒ`‚Ü‚½‚ÍƒGƒ~ƒ…ƒŒ[ƒVƒ‡ƒ“‚ÉNM(ƒfƒoƒCƒXg—p•s‰Â—áŠO)‚ğ”­¶‚³‚¹‚é
+	// ã‚¿ã‚¹ã‚¯ã‚¹ã‚¤ãƒƒãƒã¾ãŸã¯ã‚¨ãƒŸãƒ¥ãƒ¬ãƒ¼ã‚·ãƒ§ãƒ³æ™‚ã«NM(ãƒ‡ãƒã‚¤ã‚¹ä½¿ç”¨ä¸å¯ä¾‹å¤–)ã‚’ç™ºç”Ÿã•ã›ã‚‹
 	if ((CPU_CR0 & (CPU_CR0_TS)) || (CPU_CR0 & CPU_CR0_EM)) {
 		EXCEPTION(NM_EXCEPTION, 0);
 	}
 }
-static void
+static INLINE void
 fpu_check_NM_EXCEPTION2(){
-	// ƒ^ƒXƒNƒXƒCƒbƒ`‚Ü‚½‚ÍƒGƒ~ƒ…ƒŒ[ƒVƒ‡ƒ“‚ÉNM(ƒfƒoƒCƒXg—p•s‰Â—áŠO)‚ğ”­¶‚³‚¹‚é
+	// ã‚¿ã‚¹ã‚¯ã‚¹ã‚¤ãƒƒãƒã¾ãŸã¯ã‚¨ãƒŸãƒ¥ãƒ¬ãƒ¼ã‚·ãƒ§ãƒ³æ™‚ã«NM(ãƒ‡ãƒã‚¤ã‚¹ä½¿ç”¨ä¸å¯ä¾‹å¤–)ã‚’ç™ºç”Ÿã•ã›ã‚‹
 	if ((CPU_CR0 & (CPU_CR0_TS)) || (CPU_CR0 & CPU_CR0_EM)) {
 		EXCEPTION(NM_EXCEPTION, 0);
 	}
 }
 
-static void fpu_checkexception() {
+static INLINE void fpu_checkexception() {
 	if ((FPU_STATUSWORD & ~FPU_CTRLWORD) & 0x3F) {
 		EXCEPTION(MF_EXCEPTION, 0);
 	}
@@ -325,17 +325,17 @@ static void FPU_FBLD(UINT32 addr, UINT reg)
 	SINT64 val = 0;
 	UINT8 in = 0;
 
-	// 80bit‚Ü‚Æ‚ß‚Ä“Ç‚İæ‚è
+	// 80bitã¾ã¨ã‚ã¦èª­ã¿å–ã‚Š
 	bcdbuf = fpu_memoryread_f(addr);
 
-	// 0`8byte–Ú‚Ìˆ— BCD
+	// 0ã€œ8byteç›®ã®å‡¦ç† BCD
 	for (i = 8; i >= 0; i--) {
 		in = bcdbuf.b[i];
 		tmp = ((in >> 4) & 0xf) * 10 + (in & 0xf);
 		val = val * 100 + tmp;
 	}
 
-	// 9byte–Ú‚Í•„†‚Ì‚İˆÓ–¡‚ª‚ ‚é
+	// 9byteç›®ã¯ç¬¦å·ã®ã¿æ„å‘³ãŒã‚ã‚‹
 	if (bcdbuf.b[9] & 0x80) {
 		val = -val;
 	}
@@ -374,22 +374,22 @@ static void FPU_FST_F80(UINT32 addr) {
 	FPU_ST80(addr, FPU_STAT_TOP);
 }
 
-static void FPU_FST_I16(UINT32 addr) {
-	FPU_ConvertToSoftFloatFlags();
+static INLINE void FPU_FST_I16(UINT32 addr) {
+	FPU_SoftFloatBegin();
 	fpu_memorywrite_w(addr, (UINT16)floatx80_to_int16_np2(FPU_STAT.reg[FPU_STAT_TOP].d));
-	FPU_ConvertFromSoftFloatFlags();
+	FPU_SoftFloatEnd();
 }
 
-static void FPU_FST_I32(UINT32 addr) {
-	FPU_ConvertToSoftFloatFlags();
+static INLINE void FPU_FST_I32(UINT32 addr) {
+	FPU_SoftFloatBegin();
 	fpu_memorywrite_d(addr, (UINT32)floatx80_to_int32_np2(FPU_STAT.reg[FPU_STAT_TOP].d));
-	FPU_ConvertFromSoftFloatFlags();
+	FPU_SoftFloatEnd();
 }
 
-static void FPU_FST_I64(UINT32 addr) {
-	FPU_ConvertToSoftFloatFlags();
+static INLINE void FPU_FST_I64(UINT32 addr) {
+	FPU_SoftFloatBegin();
 	fpu_memorywrite_q(addr, (UINT64)floatx80_to_int64_np2(FPU_STAT.reg[FPU_STAT_TOP].d));
-	FPU_ConvertFromSoftFloatFlags();
+	FPU_SoftFloatEnd();
 }
 
 static void FPU_FBST(UINT32 addr)
@@ -401,16 +401,17 @@ static void FPU_FBST(UINT32 addr)
 	uint_fast8_t oldrnd = softfloat_roundingMode;
 	softfloat_roundingMode = softfloat_round_min;
 
+	FPU_SoftFloatBegin();
 	val = floatx80_to_int64(FPU_STAT.reg[FPU_STAT_TOP].d);
 
-	// 9byte–Ú‚Í•„†‚Ì‚İˆÓ–¡‚ª‚ ‚é
+	// 9byteç›®ã¯ç¬¦å·ã®ã¿æ„å‘³ãŒã‚ã‚‹
 	if (val < 0)
 	{
 		bcdbuf.b[9] = 0x80;
 		val = -val;
 	}
 
-	// 0`8byte–Ú‚Ìˆ— BCD
+	// 0ã€œ8byteç›®ã®å‡¦ç† BCD
 	for (i = 0; i < 9; i++) {
 		bcdbuf.b[i] = (UINT8)(val % 10);
 		val /= 10;
@@ -418,11 +419,11 @@ static void FPU_FBST(UINT32 addr)
 		val /= 10;
 	}
 
-	// 80bit‚Ü‚Æ‚ß‚Ä‘‚«‚İ
+	// 80bitã¾ã¨ã‚ã¦æ›¸ãè¾¼ã¿
 	fpu_memorywrite_f(addr, &bcdbuf);
 
 	softfloat_roundingMode = oldrnd;
-	FPU_ConvertFromSoftFloatFlags();
+	FPU_SoftFloatEnd();
 }
 
 
@@ -436,9 +437,14 @@ FPU_FINIT(void)
 	int i;
 	FPU_SetCW(0x37F);
 	FPU_STATUSWORD = 0;
+	FPU_INSTPTR_SEG = 0;
+	FPU_INSTPTR_OFFSET = 0;
+	FPU_DATAPTR_SEG = 0;
+	FPU_DATAPTR_OFFSET = 0;
+	FPU_LASTINSTOP = 0;
 	FPU_STAT_TOP=FP_TOP_GET();
 	for(i=0;i<8;i++){
-		// EmptyƒZƒbƒg‚µ‚Ä‚àƒŒƒWƒXƒ^‚Ì“à—e‚ÍÁ‚µ‚Ä‚Í‚¢‚¯‚È‚¢
+		// Emptyã‚»ãƒƒãƒˆã—ã¦ã‚‚ãƒ¬ã‚¸ã‚¹ã‚¿ã®å†…å®¹ã¯æ¶ˆã—ã¦ã¯ã„ã‘ãªã„
 		FPU_STAT.tag[i] = TAG_Empty;
 	}
 	FPU_STAT.tag[8] = TAG_Valid; // dummy
@@ -470,6 +476,85 @@ static UINT16 FPU_GetTag(void)
 		tag |= ((FPU_STAT.tag[i] & 3) << (2 * i));
 	return tag;
 }
+/*
+ * Record the instruction address and opcode fields exposed by x87 environment
+ * save instructions.  CPU_PREV_EIP identifies the beginning of the current
+ * instruction, including prefixes.  FPU_LASTINSTOP stores the D8..DF escape
+ * number in bits 10..8 and the ModR/M byte in bits 7..0.
+ */
+static INLINE void FPU_RecordInstruction(UINT esc, UINT modrm)
+{
+	FPU_INSTPTR_SEG = CPU_CS;
+	FPU_INSTPTR_OFFSET = CPU_PREV_EIP;
+	FPU_LASTINSTOP = (UINT16)(((esc & 7) << 8) | (modrm & 0xff));
+}
+
+static INLINE int FPU_IsControlInstruction(UINT esc, UINT modrm)
+{
+	UINT idx = (modrm >> 3) & 7;
+	UINT sub = modrm & 7;
+
+	/* These D9 memory forms load or store x87 control/environment state. */
+	if (esc == 1 && modrm < 0xc0 && idx >= 4)
+		return 1;
+	/* DB E0..E7 contains x87 control operations such as FCLEX and FINIT. */
+	if (esc == 3 && modrm >= 0xc0 && idx == 4)
+		return 1;
+	/* These DD memory forms restore, save, or inspect x87 state. */
+	if (esc == 5 && modrm < 0xc0 && (idx == 4 || idx == 6 || idx == 7))
+		return 1;
+	/* DF E0 transfers the status word to AX without a data operand. */
+	if (esc == 7 && modrm >= 0xc0 && idx == 4 && sub == 0)
+		return 1;
+	return 0;
+}
+
+static INLINE void FPU_RecordInstructionIfNeeded(UINT esc, UINT modrm)
+{
+	if (!FPU_IsControlInstruction(esc, modrm))
+		FPU_RecordInstruction(esc, modrm);
+}
+
+/* x87 control/state images use the current effective-address segment but do
+ * not make that image address the saved x87 data-operand pointer. */
+static INLINE UINT8 FPU_EnvRead8(UINT32 addr)
+{
+	return cpu_vmemoryread_b(CPU_INST_SEGREG_INDEX, addr);
+}
+static INLINE UINT16 FPU_EnvRead16(UINT32 addr)
+{
+	return cpu_vmemoryread_w(CPU_INST_SEGREG_INDEX, addr);
+}
+static INLINE UINT32 FPU_EnvRead32(UINT32 addr)
+{
+	return cpu_vmemoryread_d(CPU_INST_SEGREG_INDEX, addr);
+}
+static INLINE UINT64 FPU_EnvRead64(UINT32 addr)
+{
+	return cpu_vmemoryread_q(CPU_INST_SEGREG_INDEX, addr);
+}
+static INLINE void FPU_EnvWrite8(UINT32 addr, UINT8 value)
+{
+	cpu_vmemorywrite_b(CPU_INST_SEGREG_INDEX, addr, value);
+}
+static INLINE void FPU_EnvWrite16(UINT32 addr, UINT16 value)
+{
+	cpu_vmemorywrite_w(CPU_INST_SEGREG_INDEX, addr, value);
+}
+static INLINE void FPU_EnvWrite32(UINT32 addr, UINT32 value)
+{
+	cpu_vmemorywrite_d(CPU_INST_SEGREG_INDEX, addr, value);
+}
+static INLINE void FPU_EnvWrite64(UINT32 addr, UINT64 value)
+{
+	cpu_vmemorywrite_q(CPU_INST_SEGREG_INDEX, addr, value);
+}
+
+static INLINE UINT32 FPU_RealLinear(FPU_PTR p)
+{
+	return (((UINT32)p.seg) << 4) + p.offset;
+}
+
 static UINT8 FPU_GetTag8(void)
 {
 	UINT i;
@@ -526,7 +611,7 @@ static void FPU_pop(void) {
  * FPU instruction
  */
 
- // ƒŒƒWƒXƒ^‘€ì
+ // ãƒ¬ã‚¸ã‚¹ã‚¿æ“ä½œ
 static void FPU_FST(UINT st, UINT other) {
 	FPU_STAT.tag[other] = FPU_STAT.tag[st];
 	FPU_STAT.reg[other] = FPU_STAT.reg[st];
@@ -601,40 +686,41 @@ static void FPU_FLDZ(void) {
 	FPU_STAT.mmxenable = 0;
 }
 
-// l‘¥‰‰Z
-static void FPU_FADD(UINT op1, UINT op2) {
-	FPU_ConvertToSoftFloatFlags();
+// å››å‰‡æ¼”ç®—
+static INLINE void FPU_FADD(UINT op1, UINT op2) {
+	FPU_SoftFloatBegin();
 	FPU_STAT.reg[op1].d = floatx80_add(FPU_STAT.reg[op1].d, FPU_STAT.reg[op2].d);
-	FPU_ConvertFromSoftFloatFlags();
+	FPU_SoftFloatEnd();
 	return;
 }
-static void FPU_FMUL(UINT st, UINT other) {
-	FPU_ConvertToSoftFloatFlags();
+static INLINE void FPU_FMUL(UINT st, UINT other) {
+	FPU_SoftFloatBegin();
 	FPU_STAT.reg[st].d = floatx80_mul(FPU_STAT.reg[st].d, FPU_STAT.reg[other].d);
-	FPU_ConvertFromSoftFloatFlags();
+	FPU_SoftFloatEnd();
 	return;
 }
-static void FPU_FSUB(UINT st, UINT other) {
-	FPU_ConvertToSoftFloatFlags();
+static INLINE void FPU_FSUB(UINT st, UINT other) {
+	FPU_SoftFloatBegin();
 	FPU_STAT.reg[st].d = floatx80_sub(FPU_STAT.reg[st].d, FPU_STAT.reg[other].d);
+	FPU_SoftFloatEnd();
 	return;
 }
-static void FPU_FSUBR(UINT st, UINT other) {
-	FPU_ConvertToSoftFloatFlags();
+static INLINE void FPU_FSUBR(UINT st, UINT other) {
+	FPU_SoftFloatBegin();
 	FPU_STAT.reg[st].d = floatx80_sub(FPU_STAT.reg[other].d, FPU_STAT.reg[st].d);
-	FPU_ConvertFromSoftFloatFlags();
+	FPU_SoftFloatEnd();
 	return;
 }
-static void FPU_FDIV(UINT st, UINT other) {
-	FPU_ConvertToSoftFloatFlags();
+static INLINE void FPU_FDIV(UINT st, UINT other) {
+	FPU_SoftFloatBegin();
 	FPU_STAT.reg[st].d = floatx80_div(FPU_STAT.reg[st].d, FPU_STAT.reg[other].d);
-	FPU_ConvertFromSoftFloatFlags();
+	FPU_SoftFloatEnd();
 	return;
 }
-static void FPU_FDIVR(UINT st, UINT other) {
-	FPU_ConvertToSoftFloatFlags();
+static INLINE void FPU_FDIVR(UINT st, UINT other) {
+	FPU_SoftFloatBegin();
 	FPU_STAT.reg[st].d = floatx80_div(FPU_STAT.reg[other].d, FPU_STAT.reg[st].d);
-	FPU_ConvertFromSoftFloatFlags();
+	FPU_SoftFloatEnd();
 	return;
 }
 static INLINE void FPU_FADD_EA(UINT op1) {
@@ -659,18 +745,18 @@ static void FPU_FPREM(void) {
 	sw_extFloat80_t val, div;
 	SINT64 qint;
 
-	FPU_ConvertToSoftFloatFlags();
+	FPU_SoftFloatBegin();
 	val = FPU_STAT.reg[FPU_STAT_TOP].d;
 	div = FPU_STAT.reg[FPU_ST(1)].d;
-	qint = floatx80_to_int64_round_to_zero(floatx80_div(val, div)); // int(”íœ” / œ”) = ¤
+	qint = floatx80_to_int64_round_to_zero(floatx80_div(val, div)); // int(è¢«é™¤æ•° / é™¤æ•°) = å•†
 
-	FPU_STAT.reg[FPU_STAT_TOP].d = floatx80_sub(val, floatx80_mul(int64_to_floatx80(qint), div)); // ”íœ” - ¤ x œ” = è—]
+	FPU_STAT.reg[FPU_STAT_TOP].d = floatx80_sub(val, floatx80_mul(int64_to_floatx80(qint), div)); // è¢«é™¤æ•° - å•† x é™¤æ•° = å‰°ä½™
 	FPU_STATUSWORD &= ~(FP_C0_FLAG | FP_C1_FLAG | FP_C2_FLAG | FP_C3_FLAG);
-	if(qint & 4) FPU_STATUSWORD |= FP_C0_FLAG; // ¤‚Ìbit2
-	if(qint & 2) FPU_STATUSWORD |= FP_C3_FLAG; // ¤‚Ìbit1
-	if(qint & 1) FPU_STATUSWORD |= FP_C1_FLAG; // ¤‚Ìbit0
-	// C2ƒNƒŠƒA‚ÅŠ®—¹ˆµ‚¢
-	FPU_ConvertFromSoftFloatFlags();
+	if(qint & 4) FPU_STATUSWORD |= FP_C0_FLAG; // å•†ã®bit2
+	if(qint & 2) FPU_STATUSWORD |= FP_C3_FLAG; // å•†ã®bit1
+	if(qint & 1) FPU_STATUSWORD |= FP_C1_FLAG; // å•†ã®bit0
+	// C2ã‚¯ãƒªã‚¢ã§å®Œäº†æ‰±ã„
+	FPU_SoftFloatEnd();
 }
 
 static void FPU_FPREM1(void) {
@@ -678,76 +764,76 @@ static void FPU_FPREM1(void) {
 	SINT64 qint;
 	uint_fast8_t oldrnd = softfloat_roundingMode;
 
-	// IEEE 754 è—]@¤‚ğÅ‚à‹ß‚¢®”’l‚Æ‚·‚éB—]‚è‚ª•‰’l‚É‚È‚é‚±‚Æ‚ª—L‚è“¾‚é
+	// IEEE 754 å‰°ä½™ã€€å•†ã‚’æœ€ã‚‚è¿‘ã„æ•´æ•°å€¤ã¨ã™ã‚‹ã€‚ä½™ã‚ŠãŒè² å€¤ã«ãªã‚‹ã“ã¨ãŒæœ‰ã‚Šå¾—ã‚‹
 
-	FPU_ConvertToSoftFloatFlags();
+	FPU_SoftFloatBegin();
 	val = FPU_STAT.reg[FPU_STAT_TOP].d;
 	div = FPU_STAT.reg[FPU_ST(1)].d;
-	q = floatx80_add(floatx80_div(val, div), c_double_to_floatx80(0.5)); // floor(’l + 0.5)‚ÅlÌŒÜ“ü Œµ–§‚É‚Í•‰’l‚Ì‹«ŠE‚Åˆá‚¤‚ª”÷X‚½‚é·‚Æ‚µ‚Ä‹C‚É‚µ‚È‚¢‚±‚Æ‚É‚·‚éB
+	q = floatx80_add(floatx80_div(val, div), c_double_to_floatx80(0.5)); // floor(å€¤ + 0.5)ã§å››æ¨äº”å…¥ å³å¯†ã«ã¯è² å€¤ã®å¢ƒç•Œã§é•ã†ãŒå¾®ã€…ãŸã‚‹å·®ã¨ã—ã¦æ°—ã«ã—ãªã„ã“ã¨ã«ã™ã‚‹ã€‚
 	softfloat_roundingMode = softfloat_round_min;
-	qint = floatx80_to_int64(q); // lÌŒÜ“ü(”íœ” / œ”) = Å‚à®”‚É‹ß‚¢¤
+	qint = floatx80_to_int64(q); // å››æ¨äº”å…¥(è¢«é™¤æ•° / é™¤æ•°) = æœ€ã‚‚æ•´æ•°ã«è¿‘ã„å•†
 
-	FPU_STAT.reg[FPU_STAT_TOP].d = floatx80_sub(val, floatx80_mul(int64_to_floatx80(qint), div)); // ”íœ” - ¤ x œ” = è—]
+	FPU_STAT.reg[FPU_STAT_TOP].d = floatx80_sub(val, floatx80_mul(int64_to_floatx80(qint), div)); // è¢«é™¤æ•° - å•† x é™¤æ•° = å‰°ä½™
 	FPU_STATUSWORD &= ~(FP_C0_FLAG | FP_C1_FLAG | FP_C2_FLAG | FP_C3_FLAG);
-	if(qint & 4) FPU_STATUSWORD |= FP_C0_FLAG; // ¤‚Ìbit2
-	if(qint & 2) FPU_STATUSWORD |= FP_C3_FLAG; // ¤‚Ìbit1
-	if(qint & 1) FPU_STATUSWORD |= FP_C1_FLAG; // ¤‚Ìbit0
-	// C2ƒNƒŠƒA‚ÅŠ®—¹ˆµ‚¢
+	if(qint & 4) FPU_STATUSWORD |= FP_C0_FLAG; // å•†ã®bit2
+	if(qint & 2) FPU_STATUSWORD |= FP_C3_FLAG; // å•†ã®bit1
+	if(qint & 1) FPU_STATUSWORD |= FP_C1_FLAG; // å•†ã®bit0
+	// C2ã‚¯ãƒªã‚¢ã§å®Œäº†æ‰±ã„
 	softfloat_roundingMode = oldrnd;
-	FPU_ConvertFromSoftFloatFlags();
+	FPU_SoftFloatEnd();
 }
 
-// ”ŠwŠÖ”
+// æ•°å­¦é–¢æ•°
 static void FPU_FSIN(void) {
-	FPU_ConvertToSoftFloatFlags();
+	FPU_SoftFloatBegin();
 	FPU_STAT.reg[FPU_STAT_TOP].d = c_double_to_floatx80(sin(floatx80_to_c_double(FPU_STAT.reg[FPU_STAT_TOP].d)));
 	FPU_STATUSWORD &= ~FP_C2_FLAG;
-	FPU_ConvertFromSoftFloatFlags();
+	FPU_SoftFloatEnd();
 	return;
 }
 static void FPU_FCOS(void) {
-	FPU_ConvertToSoftFloatFlags();
+	FPU_SoftFloatBegin();
 	FPU_STAT.reg[FPU_STAT_TOP].d = c_double_to_floatx80(cos(floatx80_to_c_double(FPU_STAT.reg[FPU_STAT_TOP].d)));
 	FPU_STATUSWORD &= ~FP_C2_FLAG;
-	FPU_ConvertFromSoftFloatFlags();
+	FPU_SoftFloatEnd();
 	return;
 }
 static void FPU_FSINCOS(void) {
 	double temp;
 
-	FPU_ConvertToSoftFloatFlags();
+	FPU_SoftFloatBegin();
 	temp = floatx80_to_c_double(FPU_STAT.reg[FPU_STAT_TOP].d);
 	FPU_STAT.reg[FPU_STAT_TOP].d = c_double_to_floatx80(sin(temp));
 	FPU_push(c_double_to_floatx80(cos(temp)));
 	FPU_STATUSWORD &= ~FP_C2_FLAG;
-	FPU_ConvertFromSoftFloatFlags();
+	FPU_SoftFloatEnd();
 	return;
 }
 static void FPU_FPTAN(void) {
-	FPU_ConvertToSoftFloatFlags();
+	FPU_SoftFloatBegin();
 	FPU_STAT.reg[FPU_STAT_TOP].d = c_double_to_floatx80(tan(floatx80_to_c_double(FPU_STAT.reg[FPU_STAT_TOP].d)));
 	FPU_push(c_double_to_floatx80(1.0));
 	FPU_STATUSWORD &= ~FP_C2_FLAG;
-	FPU_ConvertFromSoftFloatFlags();
+	FPU_SoftFloatEnd();
 	return;
 }
 static void FPU_FPATAN(void) {
-	FPU_ConvertToSoftFloatFlags();
+	FPU_SoftFloatBegin();
 	FPU_STAT.reg[FPU_ST(1)].d = c_double_to_floatx80(atan2(floatx80_to_c_double(FPU_STAT.reg[FPU_ST(1)].d), floatx80_to_c_double(FPU_STAT.reg[FPU_STAT_TOP].d)));
 	FPU_pop();
-	FPU_ConvertFromSoftFloatFlags();
+	FPU_SoftFloatEnd();
 	return;
 }
 static void FPU_FSQRT(void) {
-	FPU_ConvertToSoftFloatFlags();
+	FPU_SoftFloatBegin();
 	FPU_STAT.reg[FPU_STAT_TOP].d = floatx80_sqrt(FPU_STAT.reg[FPU_STAT_TOP].d);
-	FPU_ConvertFromSoftFloatFlags();
+	FPU_SoftFloatEnd();
 	return;
 }
 static void FPU_FRNDINT(void) {
-	FPU_ConvertToSoftFloatFlags();
+	FPU_SoftFloatBegin();
 	FPU_STAT.reg[FPU_STAT_TOP].d = floatx80_round_to_int(FPU_STAT.reg[FPU_STAT_TOP].d);
-	FPU_ConvertFromSoftFloatFlags();
+	FPU_SoftFloatEnd();
 }
 static void FPU_F2XM1(void) {
 	FPU_STAT.reg[FPU_STAT_TOP].d = c_double_to_floatx80(pow(2.0, floatx80_to_c_double(FPU_STAT.reg[FPU_STAT_TOP].d)) - 1);
@@ -770,7 +856,7 @@ static void FPU_FABS(void) {
 	FPU_STAT.reg[FPU_STAT_TOP].b[9] &= ~0x80;
 }
 
-// ”äŠr
+// æ¯”è¼ƒ
 static void FPU_FCOM(UINT st, UINT other) {
 	FPU_STATUSWORD &= ~(FP_C0_FLAG | FP_C2_FLAG | FP_C3_FLAG);
 	if (((FPU_STAT.tag[st] != TAG_Valid) && (FPU_STAT.tag[st] != TAG_Zero)) ||
@@ -800,11 +886,11 @@ static void FPU_FCOMI(UINT st, UINT other) {
 	}
 }
 static void FPU_FUCOM(UINT st, UINT other) {
-	// —áŠO—‚İ‚Ì‹““®‚ªˆá‚¤‚ª‚Ù‚Ú“¯‚¶‚Æ‚µ‚ÄƒXƒ‹[
+	// ä¾‹å¤–çµ¡ã¿ã®æŒ™å‹•ãŒé•ã†ãŒã»ã¼åŒã˜ã¨ã—ã¦ã‚¹ãƒ«ãƒ¼
 	FPU_FCOM(st, other);
 }
 static void FPU_FUCOMI(UINT st, UINT other) {
-	// —áŠO—‚İ‚Ì‹““®‚ªˆá‚¤‚ª‚Ù‚Ú“¯‚¶‚Æ‚µ‚ÄƒXƒ‹[
+	// ä¾‹å¤–çµ¡ã¿ã®æŒ™å‹•ãŒé•ã†ãŒã»ã¼åŒã˜ã¨ã—ã¦ã‚¹ãƒ«ãƒ¼
 	FPU_FCOMI(st, other);
 }
 static INLINE void FPU_FCOM_EA(UINT op1) {
@@ -815,7 +901,7 @@ static void FPU_FTST(void) {
 	FPU_FCOM(FPU_STAT_TOP, 8);
 }
 
-// ğŒ•t‚«ƒRƒs[
+// æ¡ä»¶ä»˜ãã‚³ãƒ”ãƒ¼
 static void FPU_FCMOVB(UINT st, UINT other) {
 	if (CPU_FLAGL & C_FLAG) {
 		FPU_STAT.tag[st] = FPU_STAT.tag[other];
@@ -865,7 +951,7 @@ static void FPU_FCMOVNU(UINT st, UINT other) {
 	}
 }
 
-// •‚“®¬”“_”‘€ì
+// æµ®å‹•å°æ•°ç‚¹æ•°æ“ä½œ
 static void FPU_FXAM(void) {
 	FPU_STATUSWORD &= ~(FP_C0_FLAG | FP_C1_FLAG | FP_C2_FLAG | FP_C3_FLAG);
 	if (FPU_STAT.reg[FPU_STAT_TOP].d.signExp & 0x8000) {
@@ -896,52 +982,124 @@ static void FPU_FXTRACT(void) {
 	sw_extFloat80_t fracval;
 
 	fracval = FPU_STAT.reg[FPU_STAT_TOP].d;
-	expval = (SINT32)((UINT16)fracval.signExp & 0x7FFF) - 0x3FFF; // w”•”•ª‚ğ’ŠoAƒoƒCƒAƒX•ª‚ğˆø‚­
-	fracval.signExp = (SINT16)(((UINT16)fracval.signExp & 0x8000) | 0x3FFF); // •„†‚Íc‚µAw”•”•ª‚ğ0x3FFFiƒoƒCƒAƒX•ª=0j‚É‚µ‚Ä‰¼”‚¾‚¯‚É‚·‚é
-	FPU_STAT.reg[FPU_STAT_TOP].d = int64_to_floatx80(expval); // w”‚Ì‘‚«‚İ
-	FPU_push(fracval); // ‰¼”‚Ìpush
+	expval = (SINT32)((UINT16)fracval.signExp & 0x7FFF) - 0x3FFF; // æŒ‡æ•°éƒ¨åˆ†ã‚’æŠ½å‡ºã€ãƒã‚¤ã‚¢ã‚¹åˆ†ã‚’å¼•ã
+	fracval.signExp = (SINT16)(((UINT16)fracval.signExp & 0x8000) | 0x3FFF); // ç¬¦å·ã¯æ®‹ã—ã€æŒ‡æ•°éƒ¨åˆ†ã‚’0x3FFFï¼ˆãƒã‚¤ã‚¢ã‚¹åˆ†=0ï¼‰ã«ã—ã¦ä»®æ•°ã ã‘ã«ã™ã‚‹
+	FPU_STAT.reg[FPU_STAT_TOP].d = int64_to_floatx80(expval); // æŒ‡æ•°ã®æ›¸ãè¾¼ã¿
+	FPU_push(fracval); // ä»®æ•°ã®push
 }
 
-// ŠÂ‹«ƒ[ƒhEƒXƒgƒA
+// ç’°å¢ƒãƒ­ãƒ¼ãƒ‰ãƒ»ã‚¹ãƒˆã‚¢
 static void FPU_FSTENV(UINT32 addr)
 {
+	const int protected_mode = ((CPU_CR0 & CPU_CR0_PE) != 0) && ((CPU_EFLAG & VM_FLAG) == 0);
+	const FPU_PTR inst = FPU_INSTPTR;
+	const FPU_PTR data = FPU_DATAPTR;
+	const UINT16 lastop = (UINT16)(FPU_LASTINSTOP & 0x07ff);
+
 	FP_TOP_SET(FPU_STAT_TOP);
 
-	switch ((CPU_CR0 & 1) | (CPU_INST_OP32 ? 0x100 : 0x000))
-	{
-	case 0x000: case 0x001:
-		fpu_memorywrite_w(addr + 0, FPU_CTRLWORD);
-		fpu_memorywrite_w(addr + 2, FPU_STATUSWORD);
-		fpu_memorywrite_w(addr + 4, FPU_GetTag());
-		fpu_memorywrite_w(addr + 10, FPU_LASTINSTOP);
-		break;
-
-	case 0x100: case 0x101:
-		fpu_memorywrite_d(addr + 0, (UINT32)(FPU_CTRLWORD));
-		fpu_memorywrite_d(addr + 4, (UINT32)(FPU_STATUSWORD));
-		fpu_memorywrite_d(addr + 8, (UINT32)(FPU_GetTag()));
-		fpu_memorywrite_d(addr + 20, FPU_LASTINSTOP);
-		break;
+	if (!CPU_INST_OP32) {
+		FPU_EnvWrite16(addr + 0, FPU_CTRLWORD);
+		FPU_EnvWrite16(addr + 2, FPU_STATUSWORD);
+		FPU_EnvWrite16(addr + 4, FPU_GetTag());
+		if (protected_mode) {
+			/* m14byte protected-mode image: FIP:FCS and FDP:FDS are selectors:offsets. */
+			FPU_EnvWrite16(addr + 6, (UINT16)inst.offset);
+			FPU_EnvWrite16(addr + 8, inst.seg);
+			FPU_EnvWrite16(addr + 10, (UINT16)data.offset);
+			FPU_EnvWrite16(addr + 12, data.seg);
+		} else {
+			/* m14byte real/v86 image encodes 20-bit physical instruction/data addresses. */
+			UINT32 ip = FPU_RealLinear(inst);
+			UINT32 dp = FPU_RealLinear(data);
+			FPU_EnvWrite16(addr + 6, (UINT16)ip);
+			FPU_EnvWrite16(addr + 8,
+			    (UINT16)((((ip >> 16) & 0x0f) << 12) | lastop));
+			FPU_EnvWrite16(addr + 10, (UINT16)dp);
+			FPU_EnvWrite16(addr + 12,
+			    (UINT16)(((dp >> 16) & 0x0f) << 12));
+		}
+	} else {
+		FPU_EnvWrite32(addr + 0, (UINT32)FPU_CTRLWORD);
+		FPU_EnvWrite32(addr + 4, (UINT32)FPU_STATUSWORD);
+		FPU_EnvWrite32(addr + 8, (UINT32)FPU_GetTag());
+		if (protected_mode) {
+			/* m28byte protected-mode image keeps 32-bit offsets and 16-bit selectors. */
+			FPU_EnvWrite32(addr + 12, inst.offset);
+			FPU_EnvWrite32(addr + 16,
+			    ((UINT32)lastop << 16) | inst.seg);
+			FPU_EnvWrite32(addr + 20, data.offset);
+			FPU_EnvWrite32(addr + 24, (UINT32)data.seg);
+		} else {
+			/* m28byte real/v86 image encodes physical instruction/data addresses. */
+			UINT32 ip = FPU_RealLinear(inst);
+			UINT32 dp = FPU_RealLinear(data);
+			FPU_EnvWrite32(addr + 12, ip & 0xffff);
+			FPU_EnvWrite32(addr + 16,
+			    ((ip >> 16) << 12) | lastop);
+			FPU_EnvWrite32(addr + 20, dp & 0xffff);
+			FPU_EnvWrite32(addr + 24, (dp >> 16) << 12);
+		}
 	}
+
+	/* The stored image receives the old control word; the live x87 control
+	 * word then has all exception-mask bits set. */
+	FPU_SetCW((UINT16)(FPU_CTRLWORD | 0x003f));
+	CPU_WORKCLOCK(60);
 }
+
 static void FPU_FLDENV(UINT32 addr)
 {
-	switch ((CPU_CR0 & 1) | (CPU_INST_OP32 ? 0x100 : 0x000)) {
-	case 0x000: case 0x001:
-		FPU_SetCW(fpu_memoryread_w(addr + 0));
-		FPU_STATUSWORD = fpu_memoryread_w(addr + 2);
-		FPU_SetTag(fpu_memoryread_w(addr + 4));
-		FPU_LASTINSTOP = fpu_memoryread_w(addr + 10);
-		break;
+	const int protected_mode = ((CPU_CR0 & CPU_CR0_PE) != 0) && ((CPU_EFLAG & VM_FLAG) == 0);
 
-	case 0x100: case 0x101:
-		FPU_SetCW((UINT16)fpu_memoryread_d(addr + 0));
-		FPU_STATUSWORD = (UINT16)fpu_memoryread_d(addr + 4);
-		FPU_SetTag((UINT16)fpu_memoryread_d(addr + 8));
-		FPU_LASTINSTOP = (UINT16)fpu_memoryread_d(addr + 20);
-		break;
+	if (!CPU_INST_OP32) {
+		FPU_SetCW(FPU_EnvRead16(addr + 0));
+		FPU_STATUSWORD = FPU_EnvRead16(addr + 2);
+		FPU_SetTag(FPU_EnvRead16(addr + 4));
+		if (protected_mode) {
+			FPU_INSTPTR_OFFSET = FPU_EnvRead16(addr + 6);
+			FPU_INSTPTR_SEG = FPU_EnvRead16(addr + 8);
+			FPU_DATAPTR_OFFSET = FPU_EnvRead16(addr + 10);
+			FPU_DATAPTR_SEG = FPU_EnvRead16(addr + 12);
+		} else {
+			UINT16 iplo = FPU_EnvRead16(addr + 6);
+			UINT16 iphi_op = FPU_EnvRead16(addr + 8);
+			UINT16 dplo = FPU_EnvRead16(addr + 10);
+			UINT16 dphi = FPU_EnvRead16(addr + 12);
+			FPU_INSTPTR_SEG = 0;
+			FPU_INSTPTR_OFFSET = (UINT32)iplo |
+			    ((UINT32)((iphi_op >> 12) & 0x0f) << 16);
+			FPU_DATAPTR_SEG = 0;
+			FPU_DATAPTR_OFFSET = (UINT32)dplo |
+			    ((UINT32)((dphi >> 12) & 0x0f) << 16);
+			FPU_LASTINSTOP = (UINT16)(iphi_op & 0x07ff);
+		}
+	} else {
+		FPU_SetCW((UINT16)FPU_EnvRead32(addr + 0));
+		FPU_STATUSWORD = (UINT16)FPU_EnvRead32(addr + 4);
+		FPU_SetTag((UINT16)FPU_EnvRead32(addr + 8));
+		if (protected_mode) {
+			UINT32 cssel_op;
+			FPU_INSTPTR_OFFSET = FPU_EnvRead32(addr + 12);
+			cssel_op = FPU_EnvRead32(addr + 16);
+			FPU_INSTPTR_SEG = (UINT16)cssel_op;
+			FPU_LASTINSTOP = (UINT16)((cssel_op >> 16) & 0x07ff);
+			FPU_DATAPTR_OFFSET = FPU_EnvRead32(addr + 20);
+			FPU_DATAPTR_SEG = (UINT16)FPU_EnvRead32(addr + 24);
+		} else {
+			UINT32 iplo = FPU_EnvRead32(addr + 12);
+			UINT32 iphi_op = FPU_EnvRead32(addr + 16);
+			UINT32 dplo = FPU_EnvRead32(addr + 20);
+			UINT32 dphi = FPU_EnvRead32(addr + 24);
+			FPU_INSTPTR_SEG = 0;
+			FPU_INSTPTR_OFFSET = (iplo & 0xffff) | ((iphi_op >> 12) << 16);
+			FPU_DATAPTR_SEG = 0;
+			FPU_DATAPTR_OFFSET = (dplo & 0xffff) | ((dphi >> 12) << 16);
+			FPU_LASTINSTOP = (UINT16)(iphi_op & 0x07ff);
+		}
 	}
 	FPU_STAT_TOP = FP_TOP_GET();
+	CPU_WORKCLOCK(60);
 }
 static void FPU_FSAVE(UINT32 addr)
 {
@@ -955,29 +1113,53 @@ static void FPU_FSAVE(UINT32 addr)
 		start += 10;
 	}
 	FPU_FINIT();
+	CPU_WORKCLOCK(60);
 }
 static void FPU_FRSTOR(UINT32 addr)
 {
 	UINT start;
 	UINT i;
+	FPU_PTR inst;
+	FPU_PTR data;
+	UINT16 lastop;
 
 	FPU_FLDENV(addr);
+	inst = FPU_INSTPTR;
+	data = FPU_DATAPTR;
+	lastop = FPU_LASTINSTOP;
 	start = ((CPU_INST_OP32) ? 28 : 14);
 	for (i = 0; i < 8; i++) {
 		FPU_FLD80(addr + start, FPU_ST(i));
 		start += 10;
 	}
+	/* The register image is state restored by FRSTOR, so its memory reads do
+	 * not replace the FDP contained in the restored environment. */
+	FPU_INSTPTR = inst;
+	FPU_DATAPTR = data;
+	FPU_LASTINSTOP = lastop;
+	CPU_WORKCLOCK(60);
 }
 static void FPU_FXSAVE(UINT32 addr) {
 	UINT start;
 	UINT i;
+	const FPU_PTR inst = FPU_INSTPTR;
+	const FPU_PTR data = FPU_DATAPTR;
+	const UINT16 lastop = FPU_LASTINSTOP;
 
 	FP_TOP_SET(FPU_STAT_TOP);
-	fpu_memorywrite_w(addr + 0, FPU_CTRLWORD);
-	fpu_memorywrite_w(addr + 2, FPU_STATUSWORD);
-	fpu_memorywrite_b(addr + 4, FPU_GetTag8());
+	FPU_EnvWrite16(addr + 0, FPU_CTRLWORD);
+	FPU_EnvWrite16(addr + 2, FPU_STATUSWORD);
+	FPU_EnvWrite8(addr + 4, FPU_GetTag8());
+	FPU_EnvWrite8(addr + 5, 0);
+	FPU_EnvWrite16(addr + 6, (UINT16)(lastop & 0x07ff));
+	FPU_EnvWrite32(addr + 8, inst.offset);
+	FPU_EnvWrite16(addr + 12, inst.seg);
+	FPU_EnvWrite16(addr + 14, 0);
+	FPU_EnvWrite32(addr + 16, data.offset);
+	FPU_EnvWrite16(addr + 20, data.seg);
+	FPU_EnvWrite16(addr + 22, 0);
 #ifdef USE_SSE
-	fpu_memorywrite_d(addr + 24, SSE_MXCSR);
+	FPU_EnvWrite32(addr + 24, SSE_MXCSR);
 #endif
 	start = 32;
 	for (i = 0; i < 8; i++) {
@@ -987,22 +1169,37 @@ static void FPU_FXSAVE(UINT32 addr) {
 #ifdef USE_SSE
 	start = 160;
 	for (i = 0; i < 8; i++) {
-		fpu_memorywrite_q(addr + start + 0, SSE_XMMREG(i).ul64[0]);
-		fpu_memorywrite_q(addr + start + 8, SSE_XMMREG(i).ul64[1]);
+		FPU_EnvWrite64(addr + start + 0, SSE_XMMREG(i).ul64[0]);
+		FPU_EnvWrite64(addr + start + 8, SSE_XMMREG(i).ul64[1]);
 		start += 16;
 	}
 #endif
+	/* FXSAVE serializes the existing x87 pointers; its destination is not an
+	 * x87 arithmetic/data operand and therefore does not replace FDP. */
+	FPU_INSTPTR = inst;
+	FPU_DATAPTR = data;
+	FPU_LASTINSTOP = lastop;
 }
 static void FPU_FXRSTOR(UINT32 addr) {
 	UINT start;
 	UINT i;
+	FPU_PTR inst;
+	FPU_PTR data;
+	UINT16 lastop;
 
-	FPU_SetCW(fpu_memoryread_w(addr + 0));
-	FPU_STATUSWORD = fpu_memoryread_w(addr + 2);
-	FPU_SetTag8(fpu_memoryread_b(addr + 4));
+	FPU_SetCW(FPU_EnvRead16(addr + 0));
+	FPU_STATUSWORD = FPU_EnvRead16(addr + 2);
+	FPU_SetTag8(FPU_EnvRead8(addr + 4));
 	FPU_STAT_TOP = FP_TOP_GET();
+	lastop = (UINT16)(FPU_EnvRead16(addr + 6) & 0x07ff);
+	inst.offset = FPU_EnvRead32(addr + 8);
+	inst.seg = FPU_EnvRead16(addr + 12);
+	inst.pad = 0;
+	data.offset = FPU_EnvRead32(addr + 16);
+	data.seg = FPU_EnvRead16(addr + 20);
+	data.pad = 0;
 #ifdef USE_SSE
-	SSE_MXCSR = fpu_memoryread_d(addr + 24);
+	SSE_MXCSR = FPU_EnvRead32(addr + 24);
 #endif
 	start = 32;
 	for (i = 0; i < 8; i++) {
@@ -1012,11 +1209,14 @@ static void FPU_FXRSTOR(UINT32 addr) {
 #ifdef USE_SSE
 	start = 160;
 	for (i = 0; i < 8; i++) {
-		SSE_XMMREG(i).ul64[0] = fpu_memoryread_q(addr + start + 0);
-		SSE_XMMREG(i).ul64[1] = fpu_memoryread_q(addr + start + 8);
+		SSE_XMMREG(i).ul64[0] = FPU_EnvRead64(addr + start + 0);
+		SSE_XMMREG(i).ul64[1] = FPU_EnvRead64(addr + start + 8);
 		start += 16;
 	}
 #endif
+	FPU_INSTPTR = inst;
+	FPU_DATAPTR = data;
+	FPU_LASTINSTOP = lastop;
 }
 void SF_FPU_FXSAVERSTOR(void) {
 	UINT32 op;
@@ -1030,12 +1230,12 @@ void SF_FPU_FXSAVERSTOR(void) {
 
 	switch (idx) {
 	case 0: // FXSAVE
-		fpu_check_NM_EXCEPTION2(); // XXX: ª‹’–³‚µ
+		fpu_check_NM_EXCEPTION2(); // XXX: æ ¹æ‹ ç„¡ã—
 		maddr = calc_ea_dst(op);
 		FPU_FXSAVE(maddr);
 		break;
 	case 1: // FXRSTOR
-		fpu_check_NM_EXCEPTION2(); // XXX: ª‹’–³‚µ
+		fpu_check_NM_EXCEPTION2(); // XXX: æ ¹æ‹ ç„¡ã—
 		maddr = calc_ea_dst(op);
 		FPU_FXRSTOR(maddr);
 		break;
@@ -1074,45 +1274,47 @@ static void EA_TREE(UINT op)
 	idx = (op >> 3) & 7;
 	
 		switch (idx) {
-		case 0:	/* FADD (’P¸“xÀ”) */
+		case 0:	/* FADD (å˜ç²¾åº¦å®Ÿæ•°) */
 			TRACEOUT(("FADD EA"));
 			FPU_STATUSWORD &= ~FP_C1_FLAG;
 			FPU_FADD_EA(FPU_STAT_TOP); 
 			break;
-		case 1:	/* FMUL (’P¸“xÀ”) */
+		case 1:	/* FMUL (å˜ç²¾åº¦å®Ÿæ•°) */
 			TRACEOUT(("FMUL EA"));
 			FPU_STATUSWORD &= ~FP_C1_FLAG;
 			FPU_FMUL_EA(FPU_STAT_TOP);
 			break;
-		case 2:	/* FCOM (’P¸“xÀ”) */
+		case 2:	/* FCOM (å˜ç²¾åº¦å®Ÿæ•°) */
 			TRACEOUT(("FCOM EA"));
 			FPU_STATUSWORD &= ~FP_C1_FLAG;
 			FPU_FCOM_EA(FPU_STAT_TOP);
 			break;
-		case 3:	/* FCOMP (’P¸“xÀ”) */
+		case 3:	/* FCOMP (å˜ç²¾åº¦å®Ÿæ•°) */
 			TRACEOUT(("FCOMP EA"));
 			FPU_FCOM_EA(FPU_STAT_TOP);
 			FPU_pop();
 			break;
-		case 4:	/* FSUB (’P¸“xÀ”) */
+		case 4:	/* FSUB (å˜ç²¾åº¦å®Ÿæ•°) */
 			TRACEOUT(("FSUB EA"));
 			FPU_STATUSWORD &= ~FP_C1_FLAG;
 			FPU_FSUB_EA(FPU_STAT_TOP);
 			break;
-		case 5:	/* FSUBR (’P¸“xÀ”) */
+		case 5:	/* FSUBR (å˜ç²¾åº¦å®Ÿæ•°) */
 			TRACEOUT(("FSUBR EA"));
 			FPU_STATUSWORD &= ~FP_C1_FLAG;
 			FPU_FSUBR_EA(FPU_STAT_TOP);
 			break;
-		case 6:	/* FDIV (’P¸“xÀ”) */
+		case 6:	/* FDIV (å˜ç²¾åº¦å®Ÿæ•°) */
 			TRACEOUT(("FDIV EA"));
 			FPU_STATUSWORD &= ~FP_C1_FLAG;
 			FPU_FDIV_EA(FPU_STAT_TOP);
+			CPU_WORKCLOCK(30);
 			break;
-		case 7:	/* FDIVR (’P¸“xÀ”) */
+		case 7:	/* FDIVR (å˜ç²¾åº¦å®Ÿæ•°) */
 			TRACEOUT(("FDIVR EA"));
 			FPU_STATUSWORD &= ~FP_C1_FLAG;
 			FPU_FDIVR_EA(FPU_STAT_TOP);
+			CPU_WORKCLOCK(30);
 			break;
 		default:
 			break;
@@ -1134,6 +1336,7 @@ SF_ESC0(void)
 	
 	fpu_check_NM_EXCEPTION();
 	fpu_checkexception();
+	FPU_RecordInstructionIfNeeded(0, op);
 	if (op >= 0xc0) {
 		/* Fxxx ST(0), ST(i) */
 		switch (idx) {
@@ -1172,11 +1375,13 @@ SF_ESC0(void)
 			TRACEOUT(("FDIV"));
 			FPU_STATUSWORD &= ~FP_C1_FLAG;
 			FPU_FDIV(FPU_STAT_TOP,FPU_ST(sub));
+			CPU_WORKCLOCK(30);
 			break;
 		case 7:	/* FDIVR */
 			TRACEOUT(("FDIVR"));
 			FPU_STATUSWORD &= ~FP_C1_FLAG;
 			FPU_FDIVR(FPU_STAT_TOP,FPU_ST(sub));
+			CPU_WORKCLOCK(30);
 			break;
 		}
 	} else {
@@ -1203,6 +1408,7 @@ SF_ESC1(void)
 	if(!(op < 0xc0 && idx>=4)){
 		fpu_checkexception();
 	}
+	FPU_RecordInstructionIfNeeded(1, op);
 	if (op >= 0xc0) 
 	{
 		switch (idx) {
@@ -1408,6 +1614,7 @@ SF_ESC1(void)
 				FPU_FCOS();	
 				break;
 			}
+			CPU_WORKCLOCK(50);
 			break;
 
 		default:
@@ -1417,7 +1624,7 @@ SF_ESC1(void)
 	} else {
 		madr = calc_ea_dst(op);
 		switch (idx) {
-		case 0:	/* FLD (’P¸“xÀ”) */
+		case 0:	/* FLD (å˜ç²¾åº¦å®Ÿæ•°) */
 			TRACEOUT(("FLD float"));
 			FPU_prepush();
 			FPU_FLD_F32(madr,FPU_STAT_TOP);
@@ -1426,13 +1633,13 @@ SF_ESC1(void)
 		case 1:	/* UNKNOWN */
 			break;
 
-		case 2:	/* FST (’P¸“xÀ”) */
+		case 2:	/* FST (å˜ç²¾åº¦å®Ÿæ•°) */
 			TRACEOUT(("FST float"));
 			FPU_FST_F32(madr);
 			FPU_STATUSWORD &= ~FP_C1_FLAG;
 			break;
 
-		case 3:	/* FSTP (’P¸“xÀ”) */
+		case 3:	/* FSTP (å˜ç²¾åº¦å®Ÿæ•°) */
 			TRACEOUT(("FSTP float"));
 			FPU_FST_F32(madr);
 			FPU_pop();
@@ -1455,7 +1662,7 @@ SF_ESC1(void)
 
 		case 7:	/* FSTCW */
 			TRACEOUT(("FSTCW/FNSTCW"));
-			fpu_memorywrite_w(madr,FPU_CTRLWORD);
+			FPU_EnvWrite16(madr, FPU_CTRLWORD);
 			break;
 
 		default:
@@ -1479,6 +1686,7 @@ SF_ESC2(void)
 	
 	fpu_check_NM_EXCEPTION();
 	fpu_checkexception();
+	FPU_RecordInstructionIfNeeded(2, op);
 	if (op >= 0xc0) {
 		/* Fxxx ST(0), ST(i) */
 		switch (idx) {
@@ -1543,6 +1751,7 @@ SF_ESC3(void)
 	if(!(op >= 0xc0 && idx==4)){
 		fpu_checkexception();
 	}
+	FPU_RecordInstructionIfNeeded(3, op);
 	if (op >= 0xc0) 
 	{
 		/* Fxxx ST(0), ST(i) */
@@ -1636,13 +1845,13 @@ SF_ESC3(void)
 			FPU_pop();
 			break;
 			
-		case 5:	/* FLD (Šg’£À”) */
+		case 5:	/* FLD (æ‹¡å¼µå®Ÿæ•°) */
 			TRACEOUT(("FLD 80 Bits Real"));
 			FPU_prepush();
 			FPU_FLD_F80(madr);
 			break;
 			
-		case 7:	/* FSTP (Šg’£À”) */
+		case 7:	/* FSTP (æ‹¡å¼µå®Ÿæ•°) */
 			TRACEOUT(("FSTP 80 Bits Real"));
 			FPU_FST_F80(madr);
 			FPU_pop();
@@ -1669,6 +1878,7 @@ SF_ESC4(void)
 	
 	fpu_check_NM_EXCEPTION();
 	fpu_checkexception();
+	FPU_RecordInstructionIfNeeded(4, op);
 	if (op >= 0xc0) {
 		/* Fxxx ST(i), ST(0) */
 		switch (idx) {
@@ -1738,6 +1948,7 @@ SF_ESC5(void)
 	if(op >= 0xc0 || (idx!=4 && idx!=6 && idx!=7)){
 		fpu_checkexception();
 	}
+	FPU_RecordInstructionIfNeeded(5, op);
 	if (op >= 0xc0) {
 		/* FUCOM ST(i), ST(0) */
 		/* Fxxx ST(i) */
@@ -1778,7 +1989,7 @@ SF_ESC5(void)
 	} else {
 		madr = calc_ea_dst(op);
 		switch (idx) {
-		case 0:	/* FLD (”{¸“xÀ”) */
+		case 0:	/* FLD (å€ç²¾åº¦å®Ÿæ•°) */
 			TRACEOUT(("FLD double real"));
 			FPU_prepush();
 			FPU_FLD_F64(madr,FPU_STAT_TOP);
@@ -1792,12 +2003,12 @@ SF_ESC5(void)
 			}
 			FPU_pop();
 			break;
-		case 2:	/* FST (”{¸“xÀ”) */
+		case 2:	/* FST (å€ç²¾åº¦å®Ÿæ•°) */
 			TRACEOUT(("FST double real"));
 			FPU_FST_F64(madr);
 			FPU_STATUSWORD &= ~FP_C1_FLAG;
 			break;
-		case 3:	/* FSTP (”{¸“xÀ”) */
+		case 3:	/* FSTP (å€ç²¾åº¦å®Ÿæ•°) */
 			TRACEOUT(("FSTP double real"));
 			FPU_FST_F64(madr);
 			FPU_pop();
@@ -1837,6 +2048,7 @@ SF_ESC6(void)
 	
 	fpu_check_NM_EXCEPTION();
 	fpu_checkexception();
+	FPU_RecordInstructionIfNeeded(6, op);
 	if (op >= 0xc0) {
 		/* Fxxx ST(i), ST(0) */
 		switch (idx) {
@@ -1858,7 +2070,7 @@ SF_ESC6(void)
 				return;
 			}
 			FPU_FCOM(FPU_STAT_TOP,FPU_ST(1));
-			FPU_pop(); // ‰ºƒR[ƒh‚Æ‡‚í‚¹‚Ä2‰ñpop
+			FPU_pop(); // ä¸‹ã‚³ãƒ¼ãƒ‰ã¨åˆã‚ã›ã¦2å›pop
 			break;			
 		case 4:	/* FSUBRP */
 			TRACEOUT(("FSUBRP"));
@@ -1872,14 +2084,14 @@ SF_ESC6(void)
 			TRACEOUT(("FDIVRP"));
 			FPU_FDIVR(FPU_ST(sub),FPU_STAT_TOP);
 			if((FPU_STATUSWORD & ~FPU_CTRLWORD) & FP_ZE_FLAG){
-				return; // POP‚µ‚È‚¢‚æ‚¤‚É‚·‚é
+				return; // POPã—ãªã„ã‚ˆã†ã«ã™ã‚‹
 			}
 			break;
 		case 7:	/* FDIVP */
 			TRACEOUT(("FDIVP"));
 			FPU_FDIV(FPU_ST(sub),FPU_STAT_TOP);
 			if((FPU_STATUSWORD & ~FPU_CTRLWORD) & FP_ZE_FLAG){
-				return; // POP‚µ‚È‚¢‚æ‚¤‚É‚·‚é
+				return; // POPã—ãªã„ã‚ˆã†ã«ã™ã‚‹
 			}
 			break;
 			/*FALLTHROUGH*/
@@ -1911,6 +2123,7 @@ SF_ESC7(void)
 	if(!(op >= 0xc0 && idx==4 && sub==0)){
 		fpu_checkexception();
 	}
+	FPU_RecordInstructionIfNeeded(7, op);
 	if (op >= 0xc0) {
 		/* Fxxx ST(0), ST(i) */
 		switch (idx) {

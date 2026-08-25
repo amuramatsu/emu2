@@ -37,7 +37,13 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #ifndef primitiveTypes_h
 #define primitiveTypes_h 1
 
+#if defined(BYTESEX_LITTLE)
 #define LITTLEENDIAN 1
+#elif defined(BYTESEX_BIG)
+//NOP
+#else
+#error Must be set BYTESEX_BIG or BYTESEX_LITTLE
+#endif
 #define SOFTFLOAT_FAST_INT64
 
 #include <stdint.h>
