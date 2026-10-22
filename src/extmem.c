@@ -96,6 +96,8 @@ static struct emb_data *search_freemem(uint32_t kb_size)
             emb_lasthandle = p->handle;
         p = p->next;
     }
+    if(res == NULL)
+        return NULL;
 
     if(res->kb_size > kb_size)
     {
@@ -571,12 +573,15 @@ void xms_farcall(void)
             {
                 if(p->kb_size + p->next->kb_size == newsize)
                 {
+                    struct emb_data *tmp = p->next;
                     p->next = p->next->next;
-                    free(p->next);
+                    free(tmp);
                 }
                 else
                 {
-                    p->next->kb_size -= newsize - p->kb_size;
+                    int extra = newsize - p->kb_size;
+                    p->next->emb_offset += extra;
+                    p->next->kb_size -= extra;
                 }
                 p->kb_size = newsize;
             }
@@ -587,6 +592,7 @@ void xms_farcall(void)
                 {
                     bl = XMM_STATUS_EMB_MEM_ALL_ALLOCATED;
                     cpuSetAX(0x0000);
+                    break;
                 }
                 memcpy(memory + XMS_EMB_BASE + 1024 * newdata->emb_offset,
                        memory + XMS_EMB_BASE + 1024 * p->emb_offset, p->kb_size);
@@ -594,6 +600,8 @@ void xms_farcall(void)
                 p->handle = 0;
             }
         }
+        bl = XMM_STATUS_SUCCESS;
+        cpuSetAX(0x0001);
     }
     break;
 

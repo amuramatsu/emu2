@@ -170,7 +170,7 @@ static int get_new_sft(void)
 
 static uint32_t get_jft_addr(unsigned cur_psp, int *num)
 {
-    unsigned psp_addr = get_current_PSP() * 16;
+    unsigned psp_addr = cur_psp * 16;
     *num = get16(psp_addr + 0x32) & 0xffff;
     return cpuGetAddress(get16(psp_addr + 0x36), get16(psp_addr + 0x34));
 }
@@ -223,7 +223,7 @@ static int handle_to_sidx(int h)
 {
     int handle_num;
     uint32_t jft_addr = get_jft_addr(get_current_PSP(), &handle_num);
-    if(h > handle_num)
+    if(h >= handle_num)
         return -1;
     int idx = get8(jft_addr + h);
     if(idx == 0xff)
@@ -235,6 +235,13 @@ static int dos_close_file(int h)
 {
     int handle_num;
     uint32_t jft_addr = get_jft_addr(get_current_PSP(), &handle_num);
+    if(h < 0 || h >= handle_num)
+    {
+        cpuSetFlag(cpuFlag_CF);
+        cpuSetAX(6);
+        dos_error = 6;
+        return -1;
+    }
     int sidx = handle_to_sidx(h);
     FILE *f = (sidx < 0) ? NULL : filetable[sidx].f;
     if(!f)
@@ -268,25 +275,33 @@ static int dos_close_file(int h)
 static void dos_close_allfile_owned(unsigned psp_seg)
 {
     int handle_num;
-    uint32_t jft_addr = get_jft_addr(get_current_PSP(), &handle_num);
+    unsigned psp_orig = get_current_PSP();
+    if(psp_seg != psp_orig)
+        set_current_PSP(psp_seg);
+    uint32_t jft_addr = get_jft_addr(psp_seg, &handle_num);
     for(int i = 0; i < handle_num; i++)
     {
         int n = get8(jft_addr + i);
         if(n != 0xff)
             dos_close_file(i);
     }
+    if(psp_seg != psp_orig)
+        set_current_PSP(psp_orig);
 }
 
-static void set_handle(int h, int sidx)
+static int set_handle(int h, int sidx)
 {
     assert(sidx >= 0 && sidx <= max_handles && filetable[sidx].f);
     int handle_num;
     uint32_t jft_addr = get_jft_addr(get_current_PSP(), &handle_num);
-    int prev_sidx = get8(jft_addr + h) * 0xFF;
+    if(h < 0 || h >= handle_num)
+        return -1;
+    int prev_sidx = get8(jft_addr + h) & 0xFF;
     if(prev_sidx != 0xff)
         dos_close_file(h);
     filetable[sidx].count++;
     put8(jft_addr + h, sidx);
+    return 0;
 }
 
 static void init_jft(unsigned psp)
@@ -653,7 +668,13 @@ static int dos_rw_record_fcb(unsigned addr, int write, int update, int seq)
     }
     // Seek to block and read
     if(fseek(f, pos, SEEK_SET))
+    {
+#if defined(EMS_SUPPORT) || defined(IA32)
+        if(buf_allocated && buf)
+            free(buf);
+#endif
         return 1; // no data read
+    }
     // Read / Write
     unsigned n = write ? fwrite(buf, 1, rsize, f) : fread(buf, 1, rsize, f);
     // Update random and block positions
@@ -2337,7 +2358,7 @@ static uint8_t *copy_envblock(uint32_t addr, int *envlen)
     if(!buf)
     {
         int s = (len + 0xf) & ~0xf;
-        buf = malloc(len);
+        buf = malloc(s);
         if(!buf)
             return NULL;
         bufsize = s;
@@ -2345,9 +2366,10 @@ static uint8_t *copy_envblock(uint32_t addr, int *envlen)
     else if(bufsize < len)
     {
         int s = (len + 0xf) & ~0xf;
-        buf = realloc(buf, s);
-        if(!buf)
+        uint8_t *tmp = realloc(buf, s);
+        if(!tmp)
             return NULL;
+        buf = tmp;
         bufsize = s;
     }
     meml_reads(addr, buf, len);
@@ -3297,7 +3319,13 @@ int intr21(void)
             break;
         }
         debug(debug_dos, "\t%04x -> %04x\n", cpuGetBX(), (unsigned)h);
-        set_handle(h, sidx);
+        if(set_handle(h, sidx) < 0)
+        {
+            dos_error = 6;
+            cpuSetAX(dos_error);
+            cpuSetFlag(cpuFlag_CF);
+            break;
+        }
         cpuSetAX(h);
         dos_error = 0;
         cpuClrFlag(cpuFlag_CF);
@@ -3315,7 +3343,15 @@ int intr21(void)
             cpuSetFlag(cpuFlag_CF);
             break;
         }
-        set_handle(cpuGetCX(), sidx);
+        int h = cpuGetCX();
+        if(set_handle(h, sidx) < 0)
+        {
+            dos_error = 6; // invalid handle
+            cpuSetAX(dos_error);
+            cpuSetFlag(cpuFlag_CF);
+            break;
+        }
+        cpuSetAX(h);
         cpuClrFlag(cpuFlag_CF);
         break;
     }
@@ -3669,12 +3705,12 @@ int intr21(void)
                 mem_resize_segment(get_current_PSP(), resize);
                 return_code |= 0x300;
             }
-            else if (parent_psp != get_current_PSP())
+            else if(parent_psp != get_current_PSP())
             {
+                // Close all files before the PSP and its JFT are deallocated
+                dos_close_allfile_owned(get_current_PSP());
                 // Deallocate child memory
                 mem_free_owned(get_current_PSP());
-                // Close all files
-                dos_close_allfile_owned(get_current_PSP());
             }
 
             // Set PSP to parent
@@ -3689,9 +3725,9 @@ int intr21(void)
                 }
                 parent_psp = ep->parent;
                 cpuSetAX(ep->parent_ax);
-                cpuSetCX(ep->parent_bx);
+                cpuSetBX(ep->parent_bx);
                 cpuSetCX(ep->parent_cx);
-                cpuSetCX(ep->parent_dx);
+                cpuSetDX(ep->parent_dx);
                 cpuSetSI(ep->parent_si);
                 cpuSetDI(ep->parent_di);
                 cpuSetBP(ep->parent_bp);
